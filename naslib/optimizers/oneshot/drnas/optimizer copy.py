@@ -63,8 +63,6 @@ class DrNASOptimizer(DARTSOptimizer):
         # self.reg_scale = config.reg_scale
         self.epochs = config.search.epochs
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.augmix = config.search.augmix   # JSD loss configured
-        self.augment = config.augment
 
     def new_epoch(self, epoch):
         super().new_epoch(epoch)
@@ -95,9 +93,6 @@ class DrNASOptimizer(DARTSOptimizer):
         # Update architecture weights
         self.arch_optimizer.zero_grad()
         logits_val = self.graph(input_val)
-        if self.augment:
-            logits_val, _, _ = torch.split(logits_val, len(logits_val) // 3)
-
         val_loss = self.loss(logits_val, target_val)
 
         if self.reg_type == "kl":
@@ -123,15 +118,7 @@ class DrNASOptimizer(DARTSOptimizer):
         # Update op weights
         self.op_optimizer.zero_grad()
         logits_train = self.graph(input_train)
-        if self.augmix:
-            logits_train, augmix_loss = self.jsd_loss(logits_train)
-            train_loss = self.loss(logits_train, target_train) + augmix_loss
-        elif self.augment:
-            logits_train, _, _ = torch.split(logits_train, len(logits_train) // 3)
-            train_loss = self.loss(logits_train, target_train)
-        else:
-            train_loss = self.loss(logits_train, target_train)
-        
+        train_loss = self.loss(logits_train, target_train)
         train_loss.backward()
         if self.grad_clip:
             torch.nn.utils.clip_grad_norm_(self.graph.parameters(), self.grad_clip)
@@ -145,16 +132,6 @@ class DrNASOptimizer(DARTSOptimizer):
         )
 
         return logits_train, logits_val, train_loss, val_loss
-    
-    def jsd_loss(self, logits_train):
-        logits_train, logits_aug1, logits_aug2 = torch.split(logits_train, len(logits_train) // 3)
-        p_clean, p_aug1, p_aug2 = F.softmax(logits_train, dim=1), F.softmax(logits_aug1, dim=1), F.softmax(logits_aug2, dim=1)
-
-        p_mixture = torch.clamp((p_clean + p_aug1 + p_aug2) / 3., 1e-7, 1).log()
-        augmix_loss = 12 * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
-                F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
-                F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3.
-        return logits_train, augmix_loss
 
     def _get_kl_reg(self):
         cons = (

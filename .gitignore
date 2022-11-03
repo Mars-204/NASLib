@@ -151,3 +151,6 @@ Session.vim
 *~
 # Auto-generated tag files
 tags
+
+/naslib/data
+*.tar

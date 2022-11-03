@@ -7,6 +7,7 @@ import torchvision.datasets as dset
 from torch.utils.data import Dataset
 from sklearn import metrics
 from scipy import stats
+import augmentations
 
 from collections import OrderedDict
 
@@ -290,6 +291,9 @@ def get_train_val_loaders(config, mode):
     """
     data = config.data
     dataset = config.dataset
+    augment = config.augment
+    
+    
     seed = config.search.seed
     config = config.search if mode == "train" else config.evaluation
     if dataset == "cifar10":
@@ -297,6 +301,8 @@ def get_train_val_loaders(config, mode):
         train_data = dset.CIFAR10(
             root=data, train=True, download=True, transform=train_transform
         )
+        if augment:
+            train_data = AugMixDataset(train_data)
         test_data = dset.CIFAR10(
             root=data, train=False, download=True, transform=valid_transform
         )
@@ -305,6 +311,8 @@ def get_train_val_loaders(config, mode):
         train_data = dset.CIFAR100(
             root=data, train=True, download=True, transform=train_transform
         )
+        if augment:
+            train_data = AugMixDataset(train_data)
         test_data = dset.CIFAR100(
             root=data, train=False, download=True, transform=valid_transform
         )
@@ -313,6 +321,8 @@ def get_train_val_loaders(config, mode):
         train_data = dset.SVHN(
             root=data, split="train", download=True, transform=train_transform
         )
+        if augment:
+            train_data = AugMixDataset(train_data) 
         test_data = dset.SVHN(
             root=data, split="test", download=True, transform=valid_transform
         )
@@ -327,6 +337,8 @@ def get_train_val_loaders(config, mode):
             transform=train_transform,
             use_num_of_class_only=120,
         )
+        if augment:
+            train_data = AugMixDataset(train_data)
         test_data = ImageNet16(
             root=data_folder,
             train=False,
@@ -1073,3 +1085,133 @@ class Checkpointer(fvCheckpointer):
 
         # return any further checkpoint data
         return checkpoint
+
+
+"""
+Implementation of AUGMIX and test corruption as implemented in AUGMIX paper
+
+"""
+
+
+
+
+CORRUPTIONS = [
+    'gaussian_noise', 'shot_noise', 'impulse_noise', 'defocus_blur',
+    'glass_blur', 'motion_blur', 'zoom_blur', 'snow', 'frost', 'fog',
+    'brightness', 'contrast', 'elastic_transform', 'pixelate',
+    'jpeg_compression'
+]
+
+def test(net, test_loader):
+    """Evaluate network on given dataset."""
+    net.eval()
+    total_loss = 0.
+    total_correct = 0
+    with torch.no_grad():
+        for images, targets in test_loader:
+            images, targets = images.cuda(), targets.cuda()
+            logits = net(images)
+            loss = torch.nn.functional.cross_entropy(logits, targets)
+            pred = logits.data.max(1)[1]
+            total_loss += float(loss.data)
+            total_correct += pred.eq(targets.data).sum().item()
+
+    return total_loss / len(test_loader.dataset), total_correct / len(
+        test_loader.dataset)
+
+def test_corr(net, dataset, config):
+    """Evaluate network on given corrupted dataset."""
+    corruption_accs = []
+    base_path = "/work/ws-tmp/g059997-naslib/NASLib_mod/naslib/data/cifar/"
+    test_transform = transforms.Compose(
+        [transforms.ToTensor(),
+        transforms.Normalize([0.5] * 3, [0.5] * 3)])
+    test_data = dset.CIFAR10(
+            root=config.data, train=False, download=True, transform=test_transform
+        )
+    
+    if dataset=="cifar10":
+        base_path += "CIFAR-10-C/"        
+    elif dataset == "cifar100":
+        base_path += "CIFAR-100-C/"
+        test_data = dset.CIFAR100(
+            root=config.data, train=False, download=True, transform=test_transform
+        )
+    else:
+        raise NotImplementedError               
+
+    for corruption in CORRUPTIONS:
+        # Reference to original data is mutated
+        test_data.data = np.load(base_path + corruption + '.npy')
+        test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
+
+        test_loader = torch.utils.data.DataLoader(
+            test_data,
+            batch_size=64,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=True)
+
+        test_loss, test_acc = test(net, test_loader)
+        corruption_accs.append(test_acc)
+        logger.info('{}\n\tTest Loss {:.3f} | Test Error {:.3f}'.format(
+            corruption, test_loss, 100 - 100. * test_acc))
+
+    return (1 - np.mean(corruption_accs))
+
+def aug(image):
+  """Perform AugMix augmentations and compute mixture.
+
+  Args:
+    image: PIL.Image input image
+    preprocess: Preprocessing function which should return a torch tensor.
+
+  Returns:
+    mixed: Augmented and mixed image.
+  """
+  try:
+        all_ops = config.all_ops
+        mixture_width = config.mixture_width
+        mixture_depth = config.mixture_depth
+        aug_severity = config.aug_severity
+  except Exception as e:
+        all_ops = True
+        mixture_depth = -1
+        mixture_width = 3
+        aug_severity = 3
+    
+    
+  aug_list = augmentations.augmentations_all
+  ws = np.float32(np.random.dirichlet([1] * mixture_width))
+  m = np.float32(np.random.beta(1, 1))
+
+  mix = torch.zeros_like(image)
+  image = transforms.ToPILImage()(image)
+  for i in range(mixture_width):
+    image_aug = image.copy()
+    depth = mixture_depth if mixture_depth > 0 else np.random.randint(
+        1, 4)
+    for _ in range(depth):
+      op = np.random.choice(aug_list)
+      image_aug = op(image_aug, aug_severity)
+    # Preprocessing commutes since all coefficients are convex
+    image_aug = transforms.ToTensor()(image_aug)
+    mix += ws[i] * (image_aug)
+  image = transforms.ToTensor()(image)
+  mixed = (1 - m) * (image) + m * mix
+  return mixed
+
+
+class AugMixDataset(torch.utils.data.Dataset):
+  """Dataset wrapper to perform AugMix augmentation."""
+
+  def __init__(self, dataset):
+    self.dataset = dataset
+
+  def __getitem__(self, i):
+    x, y = self.dataset[i]
+    im_tuple = (x, aug(x),aug(x))
+    return im_tuple, y
+
+  def __len__(self):
+    return len(self.dataset)

@@ -7,7 +7,7 @@ import os
 import copy
 import torch
 import numpy as np
-
+import torch.nn.functional as F
 from fvcore.common.checkpoint import PeriodicCheckpointer
 
 from naslib.search_spaces.core.query_metrics import Metric
@@ -44,6 +44,14 @@ class Trainer(object):
         self.config = config
         self.epochs = self.config.search.epochs
         self.lightweight_output = lightweight_output
+        self.augmix_eval = config.evaluation.augmix
+        self.augment = config.augment
+        self.dataset = config.dataset
+        try: 
+            self.eval_dataset = config.evaluation.dataset
+        except Exception as e:
+            self.eval_dataset = self.dataset
+
 
         # preparations
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -70,6 +78,7 @@ class Trainer(object):
                 "train_time": [],
                 "arch_eval": [],
                 "params": n_parameters,
+                "mCE":[],
             }
         )
 
@@ -113,11 +122,15 @@ class Trainer(object):
 
             if self.optimizer.using_step_function:
                 for step, data_train in enumerate(self.train_queue):
+                    if self.augment:
+                        data_train[0] = torch.cat(data_train[0],0).cuda()
                     data_train = (
                         data_train[0].to(self.device),
                         data_train[1].to(self.device, non_blocking=True),
                     )
                     data_val = next(iter(self.valid_queue))
+                    if self.augment:
+                        data_val[0] = torch.cat(data_val[0],0).cuda()
                     data_val = (
                         data_val[0].to(self.device),
                         data_val[1].to(self.device, non_blocking=True),
@@ -200,6 +213,18 @@ class Trainer(object):
 
         self.optimizer.after_training()
 
+        # """
+        # Adding testing corruption performance        
+        # """
+        # test_corruption = False
+        # test_corruption = self.config.search.test_corr
+
+        # if test_corruption:
+        #     mean_CE = utils.test_corr(self.optimizer.graph, self.dataset, self.config)
+        #     self.errors_dict.mCE.append(mean_CE)
+        # else:
+        #     self.errors_dict.mCE.append(-1)
+
         if summary_writer is not None:
             summary_writer.close()
 
@@ -275,6 +300,12 @@ class Trainer(object):
             metric              : Metric to query the benchmark for.
         """
         logger.info("Start evaluation")
+
+        #Adding augmix and test corruption error to evalualte
+        test_corr = False
+        test_corr = self.config.evaluation.test_corr
+
+
         if not best_arch:
 
             if not search_model:
@@ -286,13 +317,20 @@ class Trainer(object):
             best_arch = self.optimizer.get_final_architecture()
         logger.info("Final architecture:\n" + best_arch.modules_str())
 
-        if best_arch.QUERYABLE:
+        if best_arch.QUERYABLE and not self.augmix_eval:
             if metric is None:
                 metric = Metric.TEST_ACCURACY
             result = best_arch.query(
                 metric=metric, dataset=self.config.dataset, dataset_api=dataset_api
             )
             logger.info("Queried results ({}): {}".format(metric, result))
+        # elif best_arch.QUERYABLE:
+        #     if metric is None:
+        #         metric = Metric.TEST_ACCURACY
+        #     result = best_arch.query(
+        #         metric=metric, dataset=self.config.dataset, dataset_api=dataset_api
+        #     )
+        #     logger.info("Queried results ({}): {}".format(metric, result))
         else:
             best_arch.to(self.device)
             if retrain:
@@ -358,12 +396,21 @@ class Trainer(object):
 
                     # Train queue
                     for i, (input_train, target_train) in enumerate(self.train_queue):
+                        if self.augment:
+                            input_train = torch.cat(input_train,0).cuda()
+                        
                         input_train = input_train.to(self.device)
                         target_train = target_train.to(self.device, non_blocking=True)
 
                         optim.zero_grad()
                         logits_train = best_arch(input_train)
-                        train_loss = loss(logits_train, target_train)
+                        
+                        if self.augmix_eval:
+                            logits_train, augmix_loss = self.jsd_loss(logits_train)
+                            train_loss = loss(logits_train, target_train)
+                            train_loss =  train_loss + augmix_loss
+                        else:
+                            train_loss = loss(logits_train, target_train)
                         if hasattr(
                             best_arch, "auxilary_logits"
                         ):  # darts specific stuff
@@ -393,16 +440,17 @@ class Trainer(object):
                     # Validation queue
                     if self.valid_queue:
                         best_arch.eval()
-                        for i, (input_valid, target_valid) in enumerate(
-                            self.valid_queue
-                        ):
-
+                        for i, (input_valid, target_valid) in enumerate(self.valid_queue):
+                            if self.augment:
+                                input_valid = torch.cat(input_train,0).cuda()
                             input_valid = input_valid.to(self.device).float()
                             target_valid = target_valid.to(self.device).float()
 
                             # just log the validation accuracy
                             with torch.no_grad():
                                 logits_valid = best_arch(input_valid)
+                                if self.augment:
+                                    logits_valid,_ ,_ = torch.split(logits_train, len(logits_valid) // 3)
                                 self._store_accuracies(
                                     logits_valid, target_valid, "val"
                                 )
@@ -451,6 +499,23 @@ class Trainer(object):
                     top1.avg, top5.avg
                 )
             )
+        if test_corr:
+            mean_CE = utils.test_corr(best_arch, self.eval_dataset, self.config)
+            logger.info(
+            "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
+                mean_CE
+            )
+        )
+
+    def jsd_loss(self, logits_train):
+        logits_train, logits_aug1, logits_aug2 = torch.split(logits_train, len(logits_train) // 3)
+        p_clean, p_aug1, p_aug2 = F.softmax(logits_train, dim=1), F.softmax(logits_aug1, dim=1), F.softmax(logits_aug2, dim=1)
+
+        p_mixture = torch.clamp((p_clean + p_aug1 + p_aug2) / 3., 1e-7, 1).log()
+        augmix_loss = 12 * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
+                F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
+                F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3.
+        return logits_train, augmix_loss
 
     @staticmethod
     def build_search_dataloaders(config):
