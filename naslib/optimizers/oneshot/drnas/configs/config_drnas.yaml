@@ -1,8 +1,8 @@
 dataset: cifar10
-data: /work/ws-tmp/g059997-naslib/NASLib_mod/naslib/data/nb201_cifar10_full_training.pickle
+data: /work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/data
 seed: 10
 search_space: nasbench201
-out_dir: /work/ws-tmp/g059997-naslib/NASLib_mod/naslib/optimizers/oneshot/drnas
+out_dir: /work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod
 optimizer: drnas
 augment: True
 
@@ -20,9 +20,8 @@ search:
   grad_clip: 5
   train_portion: 0.5
   data_size: 25000
-  augmix: True
+  augmix: False
   test_corr: True
-
   # MOVEMENT
   #instantenous: True
   #epochs: 9

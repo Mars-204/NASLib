@@ -2,7 +2,7 @@ dataset: cifar10
 data: /work/ws-tmp/g059997-naslib/NASLib_mod/naslib/data/nb201_cifar10_full_training.pickle
 seed: 10
 search_space: nasbench201
-out_dir: /work/ws-tmp/g059997-naslib/NASLib_mod/naslib/optimizers/oneshot/drnas
+out_dir: /work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod
 optimizer: gdas
 augment: True
 
@@ -49,9 +49,18 @@ search:
   # GDAS
   tau_max: 10
   tau_min: 0.1
-  augmix: True
-  epochs: 100
+  epochs: 240
   warm_start_epochs: 0
+  batch_size: 64
+  learning_rate: 0.025
+  checkpoint_freq: 5
+  learning_rate_min: 0.001
+  momentum: 0.9
+  weight_decay: 0.0003
+  grad_clip: 5
+  train_portion: 0.5
+  data_size: 25000
+  augmix: True
   test_corr: True
   
   # RE
@@ -98,7 +107,7 @@ evaluation:
   learning_rate_min: 0.00
   momentum: 0.9
   weight_decay: 0.0003
-  epochs: 200
+  epochs: 600
   warm_start_epochs: 0
   grad_clip: 5
   train_portion: 1.
@@ -109,5 +118,5 @@ evaluation:
   cutout_prob: 1.0
   drop_path_prob: 0.2
   auxiliary_weight: 0.4
-  augmix: True
+  augmix: False
   test_corr: True

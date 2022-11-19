@@ -158,6 +158,7 @@ and our paper: <a href="https://arxiv.org/abs/2104.01177">How Powerful are Perfo
 
 ## Git ref
 ```
+git status
 git add .
 git commit -m 'your message here'
 git push origin develop

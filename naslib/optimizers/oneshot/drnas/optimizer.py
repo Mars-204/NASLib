@@ -123,10 +123,10 @@ class DrNASOptimizer(DARTSOptimizer):
         # Update op weights
         self.op_optimizer.zero_grad()
         logits_train = self.graph(input_train)
-        if self.augmix:
+        if self.augmix and self.augment:
             logits_train, augmix_loss = self.jsd_loss(logits_train)
             train_loss = self.loss(logits_train, target_train) + augmix_loss
-        elif self.augment:
+        elif self.augment and not self.augmix:
             logits_train, _, _ = torch.split(logits_train, len(logits_train) // 3)
             train_loss = self.loss(logits_train, target_train)
         else:

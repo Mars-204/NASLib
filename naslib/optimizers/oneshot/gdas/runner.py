@@ -67,14 +67,17 @@ optimizer = supported_optimizers[config.optimizer]
 optimizer.adapt_search_space(search_space)
 
 trainer = Trainer(optimizer, config, lightweight_output=True)
-trainer.search()
+#trainer.search()
+#checkpoint = utils.get_last_checkpoint(config,search = True)
+#trainer.search(resume_from=checkpoint)
 
 # if not config.eval_only:
 #    checkpoint = utils.get_last_checkpoint(config) if config.resume else ""
 #    trainer.search(resume_from=checkpoint)
 
 #checkpoint = utils.get_last_checkpoint(config, search_model=True) if config.resume else ""
-#trainer.evaluate(resume_from=checkpoint, dataset_api=dataset_api)
+checkpoint = utils.get_last_checkpoint(config, search=False) 
+trainer.evaluate(resume_from=checkpoint, dataset_api=dataset_api)
 # mov_model="/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/run/nasbench201/cifar10/movement/14/search/model_final.pth"
 # darts_model="/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/run/nasbench201/cifar10/darts/10/search/model_final.pth"
 # gdas_model="/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/run/nasbench201/cifar10/gdas/10/search/model_final.pth"
@@ -84,5 +87,6 @@ trainer.search()
 # model = best_nb301
 #model = "/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/run/darts/cifar10/darts/10/search/model_final.pth"
 # trainer.evaluate(dataset_api=dataset_api, metric=Metric.TEST_ACCURACY)#, search_model=model)
-trainer.evaluate(dataset_api=dataset_api, metric=Metric.VAL_ACCURACY)
+#trainer.evaluate(dataset_api=dataset_api, metric=Metric.VAL_ACCURACY)
 #trainer.evaluate(dataset_api=dataset_api, metric=Metric.VAL_ACCURACY, search_model=best_nb301)
+#trainer.evaluate_oneshot()

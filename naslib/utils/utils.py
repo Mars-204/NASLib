@@ -297,10 +297,14 @@ def get_train_val_loaders(config, mode):
     seed = config.search.seed
     config = config.search if mode == "train" else config.evaluation
     if dataset == "cifar10":
-        train_transform, valid_transform = _data_transforms_cifar10(config)
+        if augment:
+            train_transform, valid_transform = _data_transforms_cifar10_augmix(config)
+        else:
+            train_transform, valid_transform = _data_transforms_cifar10(config)
         train_data = dset.CIFAR10(
             root=data, train=True, download=True, transform=train_transform
         )
+        #import ipdb; ipdb.set_trace()
         if augment:
             train_data = AugMixDataset(train_data)
         test_data = dset.CIFAR10(
@@ -416,6 +420,31 @@ def get_train_val_loaders(config, mode):
 def _data_transforms_cifar10(args):
     CIFAR_MEAN = [0.49139968, 0.48215827, 0.44653124]
     CIFAR_STD = [0.24703233, 0.24348505, 0.26158768]
+
+
+    train_transform = transforms.Compose(
+        [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+        ]
+    )
+    if args.cutout:
+        train_transform.transforms.append(Cutout(args.cutout_length, args.cutout_prob))
+
+    valid_transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+        ]
+    )
+    return train_transform, valid_transform
+
+def _data_transforms_cifar10_augmix(args):
+
+    CIFAR_MEAN = [0.5, 0.5, 0.5]
+    CIFAR_STD = [0.5, 0.5, 0.5]
 
     train_transform = transforms.Compose(
         [
@@ -1122,7 +1151,7 @@ def test(net, test_loader):
 def test_corr(net, dataset, config):
     """Evaluate network on given corrupted dataset."""
     corruption_accs = []
-    base_path = "/work/ws-tmp/g059997-naslib/NASLib_mod/naslib/data/cifar/"
+    base_path = "/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/data/cifar/"
     test_transform = transforms.Compose(
         [transforms.ToTensor(),
         transforms.Normalize([0.5] * 3, [0.5] * 3)])

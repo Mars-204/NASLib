@@ -1,4 +1,6 @@
 import codecs
+from curses import flash
+
 from naslib.search_spaces.core.graph import Graph
 import time
 import json
@@ -8,6 +10,8 @@ import copy
 import torch
 import numpy as np
 import torch.nn.functional as F
+import torchvision.models as models
+
 from fvcore.common.checkpoint import PeriodicCheckpointer
 
 from naslib.search_spaces.core.query_metrics import Metric
@@ -45,6 +49,7 @@ class Trainer(object):
         self.epochs = self.config.search.epochs
         self.lightweight_output = lightweight_output
         self.augmix_eval = config.evaluation.augmix
+        self.augmix_search = config.search.augmix
         self.augment = config.augment
         self.dataset = config.dataset
         try: 
@@ -93,6 +98,7 @@ class Trainer(object):
                 train from scratch.
         """
         logger.info("Start training")
+        logger.info('Search with augmix:',self.augmix_search)
 
         np.random.seed(self.config.search.seed)
         torch.manual_seed(self.config.search.seed)
@@ -137,7 +143,7 @@ class Trainer(object):
                     )
 
                     stats = self.optimizer.step(data_train, data_val)
-                    logits_train, logits_val, train_loss, val_loss = stats
+                    logits_train, logits_val, train_loss, val_loss = stats  # JSD loss implemented in optimizer.py. Train loss contains JSD loss
 
                     self._store_accuracies(logits_train, data_train[1], "train")
                     self._store_accuracies(logits_val, data_val[1], "val")
@@ -254,11 +260,18 @@ class Trainer(object):
         with torch.no_grad():
             start_time = time.time()
             for step, data_val in enumerate(dataloader):
+                if self.augmix_eval:
+                            data_val[0] = torch.cat(data_val[0],0).cuda()
                 input_val = data_val[0].to(self.device)
                 target_val = data_val[1].to(self.device, non_blocking=True)
 
                 logits_val = self.optimizer.graph(input_val)
-                val_loss = loss(logits_val, target_val)
+                if self.augmix_eval:
+                            logits_val, augmix_loss = self.jsd_loss(logits_val)
+                            val_loss = loss(logits_val, target_val)
+                            val_loss =  val_loss + augmix_loss
+                else:
+                    val_loss = loss(logits_val, target_val)
 
                 self._store_accuracies(logits_val, data_val[1], "val")
                 self.val_loss.update(float(val_loss.detach().cpu()))
@@ -302,8 +315,10 @@ class Trainer(object):
         logger.info("Start evaluation")
 
         #Adding augmix and test corruption error to evalualte
+        query = False
         test_corr = False
         test_corr = self.config.evaluation.test_corr
+        self.augment = self.config.augment
 
 
         if not best_arch:
@@ -317,7 +332,7 @@ class Trainer(object):
             best_arch = self.optimizer.get_final_architecture()
         logger.info("Final architecture:\n" + best_arch.modules_str())
 
-        if best_arch.QUERYABLE and not self.augmix_eval:
+        if best_arch.QUERYABLE and query :
             if metric is None:
                 metric = Metric.TEST_ACCURACY
             result = best_arch.query(
@@ -332,9 +347,19 @@ class Trainer(object):
         #     )
         #     logger.info("Queried results ({}): {}".format(metric, result))
         else:
+            # Querying the results from benchmark
+
+            metric = Metric.TEST_ACCURACY
+            result = best_arch.query(
+                metric=metric, dataset=self.config.dataset, dataset_api=dataset_api
+            )
+            logger.info("Queried results ({}): {}".format(metric, result))
+
+
             best_arch.to(self.device)
             if retrain:
                 logger.info("Starting retraining from scratch")
+                logger.info("Evaluation with augmix:",self.augmix_eval)
                 best_arch.reset_weights(inplace=True)
 
                 (
@@ -409,8 +434,12 @@ class Trainer(object):
                             logits_train, augmix_loss = self.jsd_loss(logits_train)
                             train_loss = loss(logits_train, target_train)
                             train_loss =  train_loss + augmix_loss
+                        elif self.augment and not self.augmix_eval:
+                            logits_train, _, _ = torch.split(logits_train, len(logits_train) // 3)
+                            train_loss = loss(logits_train, target_train)
                         else:
                             train_loss = loss(logits_train, target_train)
+
                         if hasattr(
                             best_arch, "auxilary_logits"
                         ):  # darts specific stuff
@@ -449,7 +478,7 @@ class Trainer(object):
                             # just log the validation accuracy
                             with torch.no_grad():
                                 logits_valid = best_arch(input_valid)
-                                if self.augment:
+                                if self.augmix_eval:
                                     logits_valid,_ ,_ = torch.split(logits_train, len(logits_valid) // 3)
                                 self._store_accuracies(
                                     logits_valid, target_valid, "val"
