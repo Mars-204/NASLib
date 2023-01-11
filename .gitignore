@@ -154,3 +154,5 @@ tags
 
 /naslib/data
 *.tar
+/naslib/NATS-bench
+*.out

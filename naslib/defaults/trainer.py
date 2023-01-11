@@ -11,7 +11,10 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 import torchvision.models as models
-
+import xautodl
+import pickle
+import bz2
+import _pickle as cPickle
 from fvcore.common.checkpoint import PeriodicCheckpointer
 
 from naslib.search_spaces.core.query_metrics import Metric
@@ -102,7 +105,6 @@ class Trainer(object):
 
         np.random.seed(self.config.search.seed)
         torch.manual_seed(self.config.search.seed)
-
         self.optimizer.before_training()
         checkpoint_freq = self.config.search.checkpoint_freq
         if self.optimizer.using_step_function:
@@ -111,10 +113,10 @@ class Trainer(object):
             )
 
             start_epoch = self._setup_checkpointers(
-                resume_from, period=checkpoint_freq, scheduler=self.scheduler
+                resume_from, search= True, period=checkpoint_freq, scheduler=self.scheduler
             )
         else:
-            start_epoch = self._setup_checkpointers(resume_from, period=checkpoint_freq)
+            start_epoch = self._setup_checkpointers(resume_from, search = True, period=checkpoint_freq)
 
         if self.optimizer.using_step_function:
             self.train_queue, self.valid_queue, _ = self.build_search_dataloaders(
@@ -295,6 +297,7 @@ class Trainer(object):
         best_arch:Graph=None,
         dataset_api:object=None,
         metric:Metric=None,
+        api: object=None
     ):
         """
         Evaluate the final architecture as given from the optimizer.
@@ -303,7 +306,7 @@ class Trainer(object):
         Otherwise train as defined in the config.
 
         Args:
-            retrain (bool)      : Reset the weights from the architecure search
+            retrain (bool)      : Reset the weigh ts from the architecure search
             search_model (str)  : Path to checkpoint file that was created during search. If not provided,
                                   then try to load 'model_final.pth' from search
             resume_from (str)   : Resume retraining from the given checkpoint file.
@@ -319,20 +322,85 @@ class Trainer(object):
         test_corr = False
         test_corr = self.config.evaluation.test_corr
         self.augment = self.config.augment
-
-
+        # import ipdb; ipdb.set_trace()
         if not best_arch:
-
             if not search_model:
                 search_model = os.path.join(
                     self.config.save, "search", "model_final.pth"
                 )
-            self._setup_checkpointers(search_model)  # required to load the architecture
-
+            # import ipdb; ipdb.set_trace()
+            self._setup_checkpointers(resume_from = search_model, search= False)  # required to load the architecture
             best_arch = self.optimizer.get_final_architecture()
         logger.info("Final architecture:\n" + best_arch.modules_str())
 
-        if best_arch.QUERYABLE and query :
+        ## obtaining test accuracies from NASBench201API
+        if best_arch.QUERYABLE:
+            if metric is None:
+                metric = Metric.TEST_ACCURACY
+            result = best_arch.query(
+                metric=metric, dataset=self.config.dataset, dataset_api=dataset_api
+            )
+            logger.info("Queried results ({}): {}".format(metric, result))
+            
+        if best_arch.QUERYABLE and self.config.search_space=='nasbench201':
+            #from nas_201_api import NASBench201API as API #pip install nas-bench-201
+            from naslib.search_spaces.nasbench201.conversions import convert_naslib_to_str
+            #api = API("/work/dlclarge2/agnihotr-ml/nas301_test_acc/NASLib/naslib/data/NAS-Bench-201-v1_1-096897.pth") #path to the API please refer to https://github.com/D-X-Y/NAS-Bench-201 for downloading
+            #api = API("/work/dlclarge2/agnihotr-ml/NASLib/naslib/data/NAS-Bench-201-v1_0-e61699.pth")
+
+            #### Obtaining accuracies from NAS_201_API
+            # if api==None:
+            #     from nas_201_api import NASBench201API as API #pip install nas-bench-201
+            #     api = API("/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/NAS-Bench-201-v1_1-096897.pth") #path to the API please refer to https://github.com/D-X-Y/NAS-Bench-201 for downloading
+            
+            # index = api.query_index_by_arch(convert_naslib_to_str(best_arch))
+            # cifar10_acc = api.get_more_info(index, 'cifar10', hp='200', is_random=False)['test-accuracy']
+            # cifar100_acc = api.get_more_info(index, 'cifar100', hp='200', is_random=False)['test-accuracy']
+            # img_acc = api.get_more_info(index, 'ImageNet16-120', hp='200', is_random=False)['test-accuracy']
+            # logger.info("TEST ACCURACIES: \n\t{}: {}\n\t{}: {}\n\t{}: {}".format('cifar10', cifar10_acc, 'cifar100', cifar100_acc, 'ImageNet16-120', img_acc))
+
+            #### Loading weights of pretrained network
+            from xautodl.models import get_cell_based_tiny_net
+            from nats_bench import create
+            from nats_bench.api_utils import pickle_load
+            # file = bz2.BZ2File('/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/Copy of NATS-tss-v1_0-3ffb9.pickle.pbz2')
+
+            # d = cPickle.load(file)
+            # file.close()
+            
+            # d = pickle_load('/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/Copy of NATS-tss-v1_0-3ffb9.pickle.pbz2')
+            # api = create(d, 'tss', fast_mode=False, verbose=True)
+            api = create('/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/NATS-tss-v1_0-3ffb9-full/NATS-tss-v1_0-3ffb9-full', 'tss', fast_mode=True, verbose=True)
+            # import ipdb;ipdb.set_trace()
+            index = api.query_index_by_arch(convert_naslib_to_str(best_arch))
+            cifar10_acc = api.get_more_info(index, 'cifar10', hp='200', is_random=False)['test-accuracy']
+            cifar100_acc = api.get_more_info(index, 'cifar100', hp='200', is_random=False)['test-accuracy']
+            img_acc = api.get_more_info(index, 'ImageNet16-120', hp='200', is_random=False)['test-accuracy']
+            logger.info("TEST ACCURACIES: \n\t{}: {}\n\t{}: {}\n\t{}: {}".format('cifar10', cifar10_acc, 'cifar100', cifar100_acc, 'ImageNet16-120', img_acc))
+
+            config = api.get_net_config(index, 'cifar10')
+            best_arch = get_cell_based_tiny_net(config)
+            params = api.get_net_param(index, 'cifar10', None , hp = '200')
+            best_arch.load_state_dict(next(iter(params.values())))
+
+            self.best_c10_acc = cifar10_acc
+            self.best_c100_acc = cifar100_acc
+            self.best_img_acc = img_acc
+            self.model_path = search_model
+            # self.architecture = best_arch.modules_str()
+
+            ### querying robustness results from xnas
+        
+            if test_corr:
+                mean_CE = utils.test_corr(best_arch, self.eval_dataset, self.config)
+                logger.info(
+                "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
+                    mean_CE
+                )
+            ) 
+
+        # best_arch = self.optimizer.get_final_architecture()
+        if best_arch.QUERYABLE:
             if metric is None:
                 metric = Metric.TEST_ACCURACY
             result = best_arch.query(
@@ -347,15 +415,6 @@ class Trainer(object):
         #     )
         #     logger.info("Queried results ({}): {}".format(metric, result))
         else:
-            # Querying the results from benchmark
-
-            metric = Metric.TEST_ACCURACY
-            result = best_arch.query(
-                metric=metric, dataset=self.config.dataset, dataset_api=dataset_api
-            )
-            logger.info("Queried results ({}): {}".format(metric, result))
-
-
             best_arch.to(self.device)
             if retrain:
                 logger.info("Starting retraining from scratch")
@@ -528,13 +587,13 @@ class Trainer(object):
                     top1.avg, top5.avg
                 )
             )
-        if test_corr:
-            mean_CE = utils.test_corr(best_arch, self.eval_dataset, self.config)
-            logger.info(
-            "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
-                mean_CE
+            if test_corr:
+                mean_CE = utils.test_corr(best_arch, self.eval_dataset, self.config)
+                logger.info(
+                "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
+                    mean_CE
+                )
             )
-        )
 
     def jsd_loss(self, logits_train):
         logits_train, logits_aug1, logits_aug2 = torch.split(logits_train, len(logits_train) // 3)
@@ -643,7 +702,7 @@ class Trainer(object):
         self.test_queue = test_queue
 
     def _setup_checkpointers(
-        self, resume_from="", search=True, period=1, **add_checkpointables
+        self, resume_from="", search=False, period=1, **add_checkpointables
     ):
         """
         Sets up a periodic chechkpointer which can be used to save checkpoints
@@ -659,12 +718,14 @@ class Trainer(object):
         """
         checkpointables = self.optimizer.get_checkpointables()
         checkpointables.update(add_checkpointables)
+        if search:
+            save_dir = self.config.save + "/search"
+        else:
+            save_dir = self.config.save + "/eval"
 
         checkpointer = utils.Checkpointer(
             model=checkpointables.pop("model"),
-            save_dir=self.config.save + "/search"
-            if search
-            else self.config.save + "/eval",
+            save_dir=save_dir,
             # **checkpointables #NOTE: this is throwing an Error
         )
 

@@ -304,7 +304,6 @@ def get_train_val_loaders(config, mode):
         train_data = dset.CIFAR10(
             root=data, train=True, download=True, transform=train_transform
         )
-        #import ipdb; ipdb.set_trace()
         if augment:
             train_data = AugMixDataset(train_data)
         test_data = dset.CIFAR10(
@@ -1134,12 +1133,13 @@ CORRUPTIONS = [
 def test(net, test_loader):
     """Evaluate network on given dataset."""
     net.eval()
+    net = net.cuda()
     total_loss = 0.
     total_correct = 0
     with torch.no_grad():
         for images, targets in test_loader:
             images, targets = images.cuda(), targets.cuda()
-            logits = net(images)
+            _, logits = net(images)
             loss = torch.nn.functional.cross_entropy(logits, targets)
             pred = logits.data.max(1)[1]
             total_loss += float(loss.data)
@@ -1192,7 +1192,7 @@ def aug(image):
   """Perform AugMix augmentations and compute mixture.
 
   Args:
-    image: PIL.Image input image
+    image: torch tensor input image
     preprocess: Preprocessing function which should return a torch tensor.
 
   Returns:

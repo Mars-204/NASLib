@@ -51,7 +51,7 @@ else:
     num_classes=10
 supported_search_space ={
     "nasbench201" : NasBench201SearchSpace(),#num_classes),
-    #"darts" : DartsSearchSpace(),#num_classes),
+    "darts" : DartsSearchSpace(),#num_classes),
     "nasbench101" : NasBench101SearchSpace(),#num_classes)
     "natsbenchsize" : NATSBenchSizeSearchSpace(),
 }
@@ -59,11 +59,12 @@ supported_search_space ={
 #search_space = NasBench201SearchSpace()
 search_space = supported_search_space[config.search_space]
 #dataset_api = get_dataset_api("nasbench201", config.dataset)
-print(search_space)
+# print(search_space)
 #dataset_api = get_dataset_api(config.search_space, config.dataset)
 dataset_api = get_dataset_api(config.search_space, config.dataset)
 
 optimizer = supported_optimizers[config.optimizer]
+print(optimizer)
 optimizer.adapt_search_space(search_space)
 
 trainer = Trainer(optimizer, config, lightweight_output=True)
@@ -85,10 +86,9 @@ trainer = Trainer(optimizer, config, lightweight_output=True)
 # model = best_nb301
 # model = "/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/run/darts/cifar10/darts/10/search/model_final.pth"
 # trainer.evaluate(dataset_api=dataset_api, metric=Metric.TEST_ACCURACY)#, search_model=model)
-# import ipdb; ipdb.set_trace
+
 checkpoint = utils.get_last_checkpoint(config, search=True) 
 # trainer.search(resume_from=checkpoint)
 trainer.evaluate(dataset_api = dataset_api, retrain = True, metric = Metric.VAL_ACCURACY)
 # trainer.evaluate(dataset_api=dataset_api,resume_from=checkpoint, metric=Metric.VAL_ACCURACY)
-#trainer.evaluate(dataset_api=dataset_api, metric=Metric.VAL_ACCURACY, search_model=best_nb301)
-#trainer.evaluate_oneshot()
+# trainer.evaluate(dataset_api=dataset_api, metric=Metric.VAL_ACCURACY, search_model=best_nb301)

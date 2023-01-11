@@ -1,5 +1,7 @@
 import os
 import pickle
+import bz2
+import _pickle as cPickle
 
 from naslib.utils.utils import get_project_root
 from naslib.utils.utils_asr import from_folder
@@ -133,9 +135,14 @@ def get_asr_api(dataset=None):
 
 def get_natsbenchsize_api(dataset=None):
     from nats_bench import create
-
+    from nats_bench.api_utils import pickle_load
     # Create the API for size search space
-    api = create(None, 'sss', fast_mode=True, verbose=True)
+    # file = bz2.BZ2File('/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/Copy of NATS-sss-v1_0-50262.pickle.pbz2','rb')
+    # d = cPickle.load(file)
+    # file.close()
+    d = pickle_load('/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/Copy of NATS-sss-v1_0-50262.pickle.pbz2')
+            
+    api = create(d, 'sss', fast_mode=False, verbose=True)
     return api
 
 def get_dataset_api(search_space=None, dataset=None):

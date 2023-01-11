@@ -1,5 +1,6 @@
 """
-Test the evaluation accuracies
+Test the evaluation accuracies from the checkpoints
+
 """
 import codecs
 from curses import flash
@@ -88,7 +89,7 @@ dataset_api = get_dataset_api(config.search_space, config.dataset)
 
 optimizer = supported_optimizers[config.optimizer]
 optimizer.adapt_search_space(search_space)
-checkpoint = utils.get_last_checkpoint(config,search = True)
+checkpoint = utils.get_last_checkpoint(config,search = False)
 best_arch = optimizer.get_final_architecture()
 
 
