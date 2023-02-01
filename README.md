@@ -91,9 +91,11 @@ python test_benchmark_apis.py --search_space <search_space> --show_error
 https://arxiv.org/abs/1912.02781
 
 Augmix in search phase and evaluation phase is integrated in the code along with jsd loss function(As implemented in AUGMIX paper : ). For applying AUGMIX use:
+```python
 --config.augment = True
---config.search.augmix = True (for application in search phase only)
---config.evaluation.augmix = True (for application in eval phase only)
+--config.search.augmix = True #for application in search phase only
+--config.evaluation.augmix = True #for application in eval phase only
+```
 
 # NATS bench api
 
