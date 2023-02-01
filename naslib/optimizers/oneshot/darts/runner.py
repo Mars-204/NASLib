@@ -68,7 +68,7 @@ print(optimizer)
 optimizer.adapt_search_space(search_space)
 
 trainer = Trainer(optimizer, config, lightweight_output=True)
-# trainer.search()
+trainer.search()
 # checkpoint = utils.get_last_checkpoint(config,search = True)
 # trainer.search(resume_from=checkpoint)
 # if not config.eval_only:
@@ -87,7 +87,7 @@ trainer = Trainer(optimizer, config, lightweight_output=True)
 # model = "/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/run/darts/cifar10/darts/10/search/model_final.pth"
 # trainer.evaluate(dataset_api=dataset_api, metric=Metric.TEST_ACCURACY)#, search_model=model)
 
-checkpoint = utils.get_last_checkpoint(config, search=True) 
+# checkpoint = utils.get_last_checkpoint(config, search=True) 
 # trainer.search(resume_from=checkpoint)
 trainer.evaluate(dataset_api = dataset_api, retrain = True, metric = Metric.VAL_ACCURACY)
 # trainer.evaluate(dataset_api=dataset_api,resume_from=checkpoint, metric=Metric.VAL_ACCURACY)

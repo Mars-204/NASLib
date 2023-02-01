@@ -186,6 +186,21 @@ class DrNASOptimizer(DARTSOptimizer):
         graph = graph.to(self.device)
         return graph
 
+    def get_checkpointables(self):
+        """
+        Return all objects that should be saved in a checkpoint during training.
+        Will be called after `before_training` and must include key "model".
+        Returns:
+            (dict): with name as key and object as value. e.g. graph, arch weights, optimizers, ...
+        """
+        return {
+            "graph": self.graph,
+            "op_optimizer": self.op_optimizer,
+            "op_optimizer_evaluate": self.op_optimizer_evaluate,
+            "arch_optimizer": self.arch_optimizer,
+            "arch_weights": self.architectural_weights,            
+        }
+
 
 class DrNASMixedOp(MixedOp):
     def __init__(self, primitives, min_cuda_memory=False):

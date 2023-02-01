@@ -1094,7 +1094,7 @@ class Checkpointer(fvCheckpointer):
         if not os.path.isfile(path):
             path = PathManager.get_local_path(path)
             assert os.path.isfile(path), "Checkpoint {} not found!".format(path)
-
+        # import ipdb;ipdb.set_trace()
         checkpoint = self._load_file(path)
         incompatible = self._load_model(checkpoint)
         if (
@@ -1121,8 +1121,6 @@ Implementation of AUGMIX and test corruption as implemented in AUGMIX paper
 """
 
 
-
-
 CORRUPTIONS = [
     'gaussian_noise', 'shot_noise', 'impulse_noise', 'defocus_blur',
     'glass_blur', 'motion_blur', 'zoom_blur', 'snow', 'frost', 'fog',
@@ -1130,7 +1128,7 @@ CORRUPTIONS = [
     'jpeg_compression'
 ]
 
-def test(net, test_loader):
+def test(net, test_loader,config):
     """Evaluate network on given dataset."""
     net.eval()
     net = net.cuda()
@@ -1139,7 +1137,10 @@ def test(net, test_loader):
     with torch.no_grad():
         for images, targets in test_loader:
             images, targets = images.cuda(), targets.cuda()
-            _, logits = net(images)
+            if config.evaluation.query:
+                _, logits = net(images)
+            else: 
+                logits = net(images)
             loss = torch.nn.functional.cross_entropy(logits, targets)
             pred = logits.data.max(1)[1]
             total_loss += float(loss.data)
@@ -1181,7 +1182,7 @@ def test_corr(net, dataset, config):
             num_workers=0,
             pin_memory=True)
 
-        test_loss, test_acc = test(net, test_loader)
+        test_loss, test_acc = test(net, test_loader,config)
         corruption_accs.append(test_acc)
         logger.info('{}\n\tTest Loss {:.3f} | Test Error {:.3f}'.format(
             corruption, test_loss, 100 - 100. * test_acc))

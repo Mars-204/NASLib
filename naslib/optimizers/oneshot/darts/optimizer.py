@@ -57,6 +57,7 @@ class DARTSOptimizer(MetaOptimizer):
 
         self.config = config
         self.op_optimizer = op_optimizer
+        self.op_optimizer_evaluate = op_optimizer
         self.arch_optimizer = arch_optimizer
         self.loss = loss_criteria
         self.grad_clip = self.config.search.grad_clip
@@ -375,6 +376,21 @@ class DARTSOptimizer(MetaOptimizer):
     def _loss(self, model, criterion, input, target):
         pred = model(input)
         return criterion(pred, target)
+    
+    def get_checkpointables(self):
+        """
+        Return all objects that should be saved in a checkpoint during training.
+        Will be called after `before_training` and must include key "model".
+        Returns:
+            (dict): with name as key and object as value. e.g. graph, arch weights, optimizers, ...
+        """
+        return {
+            "graph": self.graph,
+            "op_optimizer": self.op_optimizer,
+            "op_optimizer_evaluate": self.op_optimizer_evaluate,
+            "arch_optimizer": self.arch_optimizer,
+            "arch_weights": self.architectural_weights,            
+        }
 
 
 class DARTSMixedOp(MixedOp):

@@ -199,6 +199,21 @@ class GDASOptimizer(DARTSOptimizer):
                 F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
                 F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3.
         return logits_train, augmix_loss
+    
+    def get_checkpointables(self):
+        """
+        Return all objects that should be saved in a checkpoint during training.
+        Will be called after `before_training` and must include key "model".
+        Returns:
+            (dict): with name as key and object as value. e.g. graph, arch weights, optimizers, ...
+        """
+        return {
+            "graph": self.graph,
+            "op_optimizer": self.op_optimizer,
+            "op_optimizer_evaluate": self.op_optimizer_evaluate,
+            "arch_optimizer": self.arch_optimizer,
+            "arch_weights": self.architectural_weights,            
+        }
 
 
 class GDASMixedOp(MixedOp):

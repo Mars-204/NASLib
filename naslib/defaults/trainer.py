@@ -16,6 +16,7 @@ import pickle
 import bz2
 import _pickle as cPickle
 from fvcore.common.checkpoint import PeriodicCheckpointer
+# from fvcore.common.checkpoint import Checkpointer
 
 from naslib.search_spaces.core.query_metrics import Metric
 
@@ -318,31 +319,31 @@ class Trainer(object):
         logger.info("Start evaluation")
 
         #Adding augmix and test corruption error to evalualte
-        query = False
+        query = self.config.evaluation.query
         test_corr = False
         test_corr = self.config.evaluation.test_corr
         self.augment = self.config.augment
-        # import ipdb; ipdb.set_trace()
+        
         if not best_arch:
             if not search_model:
                 search_model = os.path.join(
                     self.config.save, "search", "model_final.pth"
                 )
             # import ipdb; ipdb.set_trace()
-            self._setup_checkpointers(resume_from = search_model, search= False)  # required to load the architecture
+            self._setup_checkpointers(search_model)  # required to load the architecture
             best_arch = self.optimizer.get_final_architecture()
         logger.info("Final architecture:\n" + best_arch.modules_str())
 
         ## obtaining test accuracies from NASBench201API
-        if best_arch.QUERYABLE:
+                    
+        if best_arch.QUERYABLE and self.config.search_space=='nasbench201':
             if metric is None:
                 metric = Metric.TEST_ACCURACY
             result = best_arch.query(
                 metric=metric, dataset=self.config.dataset, dataset_api=dataset_api
             )
             logger.info("Queried results ({}): {}".format(metric, result))
-            
-        if best_arch.QUERYABLE and self.config.search_space=='nasbench201':
+
             #from nas_201_api import NASBench201API as API #pip install nas-bench-201
             from naslib.search_spaces.nasbench201.conversions import convert_naslib_to_str
             #api = API("/work/dlclarge2/agnihotr-ml/nas301_test_acc/NASLib/naslib/data/NAS-Bench-201-v1_1-096897.pth") #path to the API please refer to https://github.com/D-X-Y/NAS-Bench-201 for downloading
@@ -371,7 +372,6 @@ class Trainer(object):
             # d = pickle_load('/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/Copy of NATS-tss-v1_0-3ffb9.pickle.pbz2')
             # api = create(d, 'tss', fast_mode=False, verbose=True)
             api = create('/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/NATS-tss-v1_0-3ffb9-full/NATS-tss-v1_0-3ffb9-full', 'tss', fast_mode=True, verbose=True)
-            # import ipdb;ipdb.set_trace()
             index = api.query_index_by_arch(convert_naslib_to_str(best_arch))
             cifar10_acc = api.get_more_info(index, 'cifar10', hp='200', is_random=False)['test-accuracy']
             cifar100_acc = api.get_more_info(index, 'cifar100', hp='200', is_random=False)['test-accuracy']
@@ -398,23 +398,23 @@ class Trainer(object):
                     mean_CE
                 )
             ) 
-
-        # best_arch = self.optimizer.get_final_architecture()
-        if best_arch.QUERYABLE:
+        best_arch = self.optimizer.get_final_architecture()
+        if best_arch.QUERYABLE and not retrain:
             if metric is None:
                 metric = Metric.TEST_ACCURACY
             result = best_arch.query(
                 metric=metric, dataset=self.config.dataset, dataset_api=dataset_api
             )
             logger.info("Queried results ({}): {}".format(metric, result))
-        # elif best_arch.QUERYABLE:
-        #     if metric is None:
-        #         metric = Metric.TEST_ACCURACY
-        #     result = best_arch.query(
-        #         metric=metric, dataset=self.config.dataset, dataset_api=dataset_api
-        #     )
-        #     logger.info("Queried results ({}): {}".format(metric, result))
+
         else:
+            if metric is None:
+                metric = Metric.TEST_ACCURACY
+            result = best_arch.query(
+                metric=metric, dataset=self.config.dataset, dataset_api=dataset_api
+            )
+            logger.info("Queried results ({}): {}".format(metric, result))
+
             best_arch.to(self.device)
             if retrain:
                 logger.info("Starting retraining from scratch")
@@ -430,14 +430,14 @@ class Trainer(object):
                 optim = self.build_eval_optimizer(best_arch.parameters(), self.config)
                 scheduler = self.build_eval_scheduler(optim, self.config)
 
-                start_epoch = self._setup_checkpointers(
-                    resume_from,
-                    search=False,
-                    period=self.config.evaluation.checkpoint_freq,
-                    model=best_arch,  # checkpointables start here
-                    optim=optim,
-                    scheduler=scheduler,
-                )
+                # start_epoch = self._setup_checkpointers(
+                #     resume_from,
+                #     search=False,
+                #     period=self.config.evaluation.checkpoint_freq,
+                #     model=best_arch,  # checkpointables start here
+                #     optim=optim,
+                #     scheduler=scheduler,
+                # )
 
                 grad_clip = self.config.evaluation.grad_clip
                 loss = torch.nn.CrossEntropyLoss()
@@ -455,7 +455,7 @@ class Trainer(object):
                     scope=best_arch.OPTIMIZER_SCOPE,
                     private_edge_data=True,
                 )
-
+                start_epoch = 0
                 # train from scratch
                 epochs = self.config.evaluation.epochs
                 for e in range(start_epoch, epochs):
@@ -627,12 +627,12 @@ class Trainer(object):
             momentum=config.evaluation.momentum,
             weight_decay=config.evaluation.weight_decay,
         )
-
+    
     @staticmethod
     def build_search_scheduler(optimizer, config):
         return torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
-            T_max=config.search.epochs,
+            T_max=config.search.epochs*(config.search.data_size/config.search.batch_size),
             eta_min=config.search.learning_rate_min,
         )
 
@@ -640,7 +640,7 @@ class Trainer(object):
     def build_eval_scheduler(optimizer, config):
         return torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
-            T_max=config.evaluation.epochs,
+            T_max=config.evaluation.epochs*(config.evaluation.data_size/config.evaluation.batch_size),
             eta_min=config.evaluation.learning_rate_min,
         )
 
@@ -702,7 +702,7 @@ class Trainer(object):
         self.test_queue = test_queue
 
     def _setup_checkpointers(
-        self, resume_from="", search=False, period=1, **add_checkpointables
+        self, resume_from="", search=True, period=1, **add_checkpointables
     ):
         """
         Sets up a periodic chechkpointer which can be used to save checkpoints
@@ -724,8 +724,10 @@ class Trainer(object):
             save_dir = self.config.save + "/eval"
 
         checkpointer = utils.Checkpointer(
-            model=checkpointables.pop("model"),
-            save_dir=save_dir,
+            model=checkpointables.pop("graph"),
+            save_dir=self.config.save + "/search"
+            if search
+            else self.config.save + "/eval",
             # **checkpointables #NOTE: this is throwing an Error
         )
 
@@ -736,7 +738,7 @@ class Trainer(object):
             if search
             else self.config.evaluation.epochs,
         )
-
+        # import ipdb; ipdb.set_trace()
         if resume_from:
             logger.info("loading model from file {}".format(resume_from))
             checkpoint = checkpointer.resume_or_load(resume_from, resume=True)
