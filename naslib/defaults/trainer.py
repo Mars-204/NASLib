@@ -336,7 +336,7 @@ class Trainer(object):
 
         ## obtaining test accuracies from NASBench201API
                     
-        if best_arch.QUERYABLE and self.config.search_space=='nasbench201':
+        if best_arch.QUERYABLE and self.config.search_space=='nasbench201'and query:
             if metric is None:
                 metric = Metric.TEST_ACCURACY
             result = best_arch.query(
@@ -352,7 +352,7 @@ class Trainer(object):
             #### Obtaining accuracies from NAS_201_API
             # if api==None:
             #     from nas_201_api import NASBench201API as API #pip install nas-bench-201
-            #     api = API("/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/NAS-Bench-201-v1_1-096897.pth") #path to the API please refer to https://github.com/D-X-Y/NAS-Bench-201 for downloading
+            #     api = API("/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/NAS-Bench-201-v1_1-096897.pth") #path to the API please refer to https://github.com/D-X-Y/NAS-Bench-201 for downloading
             
             # index = api.query_index_by_arch(convert_naslib_to_str(best_arch))
             # cifar10_acc = api.get_more_info(index, 'cifar10', hp='200', is_random=False)['test-accuracy']
@@ -364,14 +364,14 @@ class Trainer(object):
             from xautodl.models import get_cell_based_tiny_net
             from nats_bench import create
             from nats_bench.api_utils import pickle_load
-            # file = bz2.BZ2File('/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/Copy of NATS-tss-v1_0-3ffb9.pickle.pbz2')
+            # file = bz2.BZ2File('/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/Copy of NATS-tss-v1_0-3ffb9.pickle.pbz2')
 
             # d = cPickle.load(file)
             # file.close()
             
-            # d = pickle_load('/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/Copy of NATS-tss-v1_0-3ffb9.pickle.pbz2')
+            # d = pickle_load('/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/Copy of NATS-tss-v1_0-3ffb9.pickle.pbz2')
             # api = create(d, 'tss', fast_mode=False, verbose=True)
-            api = create('/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/NATS-tss-v1_0-3ffb9-full/NATS-tss-v1_0-3ffb9-full', 'tss', fast_mode=True, verbose=True)
+            api = create('/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/NATS-tss-v1_0-3ffb9-full/NATS-tss-v1_0-3ffb9-full', 'tss', fast_mode=True, verbose=True)
             index = api.query_index_by_arch(convert_naslib_to_str(best_arch))
             cifar10_acc = api.get_more_info(index, 'cifar10', hp='200', is_random=False)['test-accuracy']
             cifar100_acc = api.get_more_info(index, 'cifar100', hp='200', is_random=False)['test-accuracy']
@@ -392,7 +392,7 @@ class Trainer(object):
             ### querying robustness results from xnas
         
             if test_corr:
-                mean_CE = utils.test_corr(best_arch, self.eval_dataset, self.config)
+                mean_CE = utils.test_corr_NATS(best_arch, self.eval_dataset, self.config)
                 logger.info(
                 "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
                     mean_CE
@@ -430,14 +430,14 @@ class Trainer(object):
                 optim = self.build_eval_optimizer(best_arch.parameters(), self.config)
                 scheduler = self.build_eval_scheduler(optim, self.config)
 
-                # start_epoch = self._setup_checkpointers(
-                #     resume_from,
-                #     search=False,
-                #     period=self.config.evaluation.checkpoint_freq,
-                #     model=best_arch,  # checkpointables start here
-                #     optim=optim,
-                #     scheduler=scheduler,
-                # )
+                start_epoch = self._setup_checkpointers(
+                    resume_from,
+                    search=False,
+                    period=self.config.evaluation.checkpoint_freq,
+                    model=best_arch,  # checkpointables start here
+                    optim=optim,
+                    scheduler=scheduler,
+                )
 
                 grad_clip = self.config.evaluation.grad_clip
                 loss = torch.nn.CrossEntropyLoss()
@@ -455,7 +455,6 @@ class Trainer(object):
                     scope=best_arch.OPTIMIZER_SCOPE,
                     private_edge_data=True,
                 )
-                start_epoch = 0
                 # train from scratch
                 epochs = self.config.evaluation.epochs
                 for e in range(start_epoch, epochs):
