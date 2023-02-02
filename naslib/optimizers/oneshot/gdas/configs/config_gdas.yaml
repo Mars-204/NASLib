@@ -1,8 +1,8 @@
 dataset: cifar10
-data: /work/ws-tmp/g059997-naslib/NASLib_mod/naslib/data/nb201_cifar10_full_training.pickle
+data: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/data/nb201_cifar10_full_training.pickle
 seed: 10
 search_space: nasbench201
-out_dir: /work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/optimizers/oneshot/gdas
+out_dir: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/optimizers/oneshot/drnas
 optimizer: gdas
 augment: True
 
@@ -60,7 +60,7 @@ search:
   grad_clip: 5
   train_portion: 0.5
   data_size: 25000
-  augmix: True
+  augmix: False
   test_corr: True
   
   # RE
@@ -120,4 +120,4 @@ evaluation:
   auxiliary_weight: 0.4
   augmix: True
   test_corr: True
-  query: False
+  query: True

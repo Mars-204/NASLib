@@ -1,8 +1,8 @@
 dataset: cifar10
-data: /work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/naslib/data
+data: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/data
 seed: 10
 search_space: nasbench201
-out_dir: /work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod
+out_dir: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/optimizers/oneshot/darts
 optimizer: darts
 augment: True
 
@@ -123,4 +123,4 @@ evaluation:
   auxiliary_weight: 0.4
   augmix: True
   test_corr: True
-  query: False
+  query: True
