@@ -332,11 +332,10 @@ class Trainer(object):
             # import ipdb; ipdb.set_trace()
             self._setup_checkpointers(search_model)  # required to load the architecture
             best_arch = self.optimizer.get_final_architecture()
-        logger.info("Final architecture:\n" + best_arch.modules_str())
-
+            
         ## obtaining test accuracies from NASBench201API
                     
-        if best_arch.QUERYABLE and self.config.search_space=='nasbench201'and query:
+        if best_arch.QUERYABLE and self.config.search_space=='nasbench201'and query and not resume_from:
             if metric is None:
                 metric = Metric.TEST_ACCURACY
             result = best_arch.query(
@@ -419,7 +418,8 @@ class Trainer(object):
             if retrain:
                 logger.info("Starting retraining from scratch")
                 logger.info("Evaluation with augmix:",self.augmix_eval)
-                best_arch.reset_weights(inplace=True)
+                if not resume_from:
+                    best_arch.reset_weights(inplace=True)
 
                 (
                     self.train_queue,

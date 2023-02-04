@@ -2,7 +2,7 @@ dataset: cifar10
 data: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/data/nb201_cifar10_full_training.pickle
 seed: 10
 search_space: nasbench201
-out_dir: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/optimizers/oneshot/drnas
+out_dir: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/optimizers/oneshot/gdas
 optimizer: gdas
 augment: True
 
@@ -102,7 +102,7 @@ search:
 
 evaluation:
   checkpoint_freq: 30
-  batch_size: 96
+  batch_size: 64
   learning_rate: 0.025
   learning_rate_min: 0.00
   momentum: 0.9
