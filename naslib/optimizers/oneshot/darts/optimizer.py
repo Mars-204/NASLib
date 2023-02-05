@@ -71,7 +71,6 @@ class DARTSOptimizer(MetaOptimizer):
         self.dataset = config.dataset
 
         self.augmix_search = config.search.augmix   # JSD loss configured
-        self.augment = config.augment
 
     def adapt_search_space(self, search_space, scope=None, **kwargs):
         # We are going to modify the search space
@@ -162,7 +161,7 @@ class DARTSOptimizer(MetaOptimizer):
             # Update architecture weights
             self.arch_optimizer.zero_grad()
             logits_val = self.graph(input_val)
-            if self.augment:
+            if self.augmix_search:
                 logits_val, _, _ = torch.split(logits_val, len(logits_val) // 3)
             val_loss = self.loss(logits_val, target_val)
             val_loss.backward()
@@ -172,12 +171,9 @@ class DARTSOptimizer(MetaOptimizer):
             # Update op weights
             self.op_optimizer.zero_grad()
             logits_train = self.graph(input_train)
-            if self.augmix_search and self.augment:
+            if self.augmix_search:
                 logits_train, augmix_loss = self.jsd_loss(logits_train)
                 train_loss = self.loss(logits_train, target_train) + augmix_loss
-            elif self.augment and not self.augmix_search:
-                logits_train, _, _ = torch.split(logits_train, len(logits_train) // 3)
-                train_loss = self.loss(logits_train, target_train)
             else:
                 train_loss = self.loss(logits_train, target_train)
             
