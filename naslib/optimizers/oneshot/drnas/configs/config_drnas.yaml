@@ -4,7 +4,6 @@ seed: 10
 search_space: nasbench201
 out_dir: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/optimizers/oneshot/drnas
 optimizer: drnas
-augment: True
 
 search:
  
@@ -99,11 +98,11 @@ evaluation:
   train_portion: 1.
   data_size: 50000
 
-  cutout: False
+  cutout: True
   cutout_length: 16
   cutout_prob: 1.0
   drop_path_prob: 0.3
   auxiliary_weight: 0.4
-  augmix: True
+  augmix: False
   test_corr: True
   query: True

@@ -64,7 +64,6 @@ class DrNASOptimizer(DARTSOptimizer):
         self.epochs = config.search.epochs
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.augmix = config.search.augmix   # JSD loss configured
-        self.augment = config.augment
 
     def new_epoch(self, epoch):
         super().new_epoch(epoch)
@@ -95,7 +94,7 @@ class DrNASOptimizer(DARTSOptimizer):
         # Update architecture weights
         self.arch_optimizer.zero_grad()
         logits_val = self.graph(input_val)
-        if self.augment:
+        if self.augmix_search:
             logits_val, _, _ = torch.split(logits_val, len(logits_val) // 3)
 
         val_loss = self.loss(logits_val, target_val)
@@ -123,12 +122,12 @@ class DrNASOptimizer(DARTSOptimizer):
         # Update op weights
         self.op_optimizer.zero_grad()
         logits_train = self.graph(input_train)
-        if self.augmix and self.augment:
+        if self.augmix :
             logits_train, augmix_loss = self.jsd_loss(logits_train)
             train_loss = self.loss(logits_train, target_train) + augmix_loss
-        elif self.augment and not self.augmix:
-            logits_train, _, _ = torch.split(logits_train, len(logits_train) // 3)
-            train_loss = self.loss(logits_train, target_train)
+        # elif self.augment and not self.augmix:
+        #     logits_train, _, _ = torch.split(logits_train, len(logits_train) // 3)
+        #     train_loss = self.loss(logits_train, target_train)
         else:
             train_loss = self.loss(logits_train, target_train)
         

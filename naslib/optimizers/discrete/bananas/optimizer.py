@@ -15,7 +15,7 @@ from naslib.predictors.zerocost_v2 import ZeroCostV2
 
 from naslib.search_spaces.core.query_metrics import Metric
 
-from naslib.utils.utils import AttrDict, count_parameters_in_MB, get_train_val_loaders
+from naslib.utils.utils import AttrDict, count_parameters_in_MB, get_train_val_loaders_search,get_train_val_loaders_eval
 from naslib.utils.logging import log_every_n_seconds
 
 
@@ -64,9 +64,11 @@ class Bananas(MetaOptimizer):
         self.dataset_api = dataset_api
         self.ss_type = self.search_space.get_type()
         if self.zc:
-            self.train_loader, _, _, _, _ = get_train_val_loaders(
-                self.config, mode="train"
-            )
+            if self.config.search:
+                self.train_loader, _, _, _, _ = get_train_val_loaders_search(self.config, mode="train")
+            else:
+                self.train_loader, _, _, _, _ = get_train_val_loaders_eval(self.config, mode="train")
+
         if self.semi:
             self.unlabeled = []
 

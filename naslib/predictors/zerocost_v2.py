@@ -16,7 +16,7 @@ import math
 
 from naslib.search_spaces.transbench101.loss import SoftmaxCrossEntropyWithLogits
 from naslib.predictors.predictor import Predictor
-from naslib.utils.utils import get_project_root, get_train_val_loaders
+from naslib.utils.utils import get_project_root, get_train_val_loaders_search,get_train_val_loaders_eval
 from naslib.predictors.utils.models.build_darts_net import NetworkCIFAR
 from naslib.predictors.utils.models import nasbench2 as nas201_arch
 from naslib.predictors.utils.models import nasbench1 as nas101_arch
@@ -47,7 +47,10 @@ class ZeroCostV2(Predictor):
             self.num_classes = num_classes_dic[self.config.dataset]
 
     def pre_process(self):
-        self.train_loader, _, _, _, _ = get_train_val_loaders(self.config, mode="train")
+        if self.config.eval:
+            self.train_loader, _, _, _, _ = get_train_val_loaders_eval(self.config, mode="train")
+        else:
+            self.train_loader, _, _, _, _ = get_train_val_loaders_search(self.config, mode="train")
 
     def query(self, xtest, info=None):
 

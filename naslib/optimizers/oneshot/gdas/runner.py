@@ -87,5 +87,7 @@ trainer.search()
 #model = "/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/run/darts/cifar10/darts/10/search/model_final.pth"
 # trainer.evaluate(dataset_api=dataset_api, metric=Metric.TEST_ACCURACY)#, search_model=model)
 trainer.evaluate(dataset_api = dataset_api, retrain = True, metric = Metric.VAL_ACCURACY)
+# checkpoint = utils.get_last_checkpoint(config, search=False)
+# trainer.evaluate(dataset_api = dataset_api, resume_from=checkpoint, retrain = True, metric = Metric.VAL_ACCURACY)
 #trainer.evaluate(dataset_api=dataset_api, metric=Metric.VAL_ACCURACY, search_model=best_nb301)
 #trainer.evaluate_oneshot()

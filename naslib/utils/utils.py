@@ -285,26 +285,27 @@ def get_config_from_args(args=None, config_type="nas"):
     return config
 
 
-def get_train_val_loaders(config, mode):
+def get_train_val_loaders_search(config, mode):
     """
     Constructs the dataloaders and transforms for training, validation and test data.
     """
     data = config.data
     dataset = config.dataset
-    augment = config.augment
+    augmix_search = config.search.augmix
+    augmix_eval = config.evaluation.augmix
     
     
     seed = config.search.seed
     config = config.search if mode == "train" else config.evaluation
     if dataset == "cifar10":
-        if augment:
+        if augmix_search:
             train_transform, valid_transform = _data_transforms_cifar10_augmix(config)
         else:
             train_transform, valid_transform = _data_transforms_cifar10(config)
         train_data = dset.CIFAR10(
             root=data, train=True, download=True, transform=train_transform
         )
-        if augment:
+        if augmix_search:
             train_data = AugMixDataset(train_data)
         test_data = dset.CIFAR10(
             root=data, train=False, download=True, transform=valid_transform
@@ -314,7 +315,7 @@ def get_train_val_loaders(config, mode):
         train_data = dset.CIFAR100(
             root=data, train=True, download=True, transform=train_transform
         )
-        if augment:
+        if augmix_search:
             train_data = AugMixDataset(train_data)
         test_data = dset.CIFAR100(
             root=data, train=False, download=True, transform=valid_transform
@@ -324,7 +325,7 @@ def get_train_val_loaders(config, mode):
         train_data = dset.SVHN(
             root=data, split="train", download=True, transform=train_transform
         )
-        if augment:
+        if augmix_search:
             train_data = AugMixDataset(train_data) 
         test_data = dset.SVHN(
             root=data, split="test", download=True, transform=valid_transform
@@ -340,7 +341,7 @@ def get_train_val_loaders(config, mode):
             transform=train_transform,
             use_num_of_class_only=120,
         )
-        if augment:
+        if augmix_search:
             train_data = AugMixDataset(train_data)
         test_data = ImageNet16(
             root=data_folder,
@@ -415,6 +416,135 @@ def get_train_val_loaders(config, mode):
 
     return train_queue, valid_queue, test_queue, train_transform, valid_transform
 
+def get_train_val_loaders_eval(config, mode):
+    """
+    Constructs the dataloaders and transforms for training, validation and test data.
+    """
+    data = config.data
+    dataset = config.dataset
+    augmix_eval = config.evaluation.augmix
+    
+    
+    seed = config.search.seed
+    config = config.search if mode == "train" else config.evaluation
+    if dataset == "cifar10":
+        if augmix_eval:
+            train_transform, valid_transform = _data_transforms_cifar10_augmix(config)
+        else:
+            train_transform, valid_transform = _data_transforms_cifar10(config)
+        train_data = dset.CIFAR10(
+            root=data, train=True, download=True, transform=train_transform
+        )
+        if augmix_eval:
+            train_data = AugMixDataset(train_data)
+        test_data = dset.CIFAR10(
+            root=data, train=False, download=True, transform=valid_transform
+        )
+    elif dataset == "cifar100":
+        train_transform, valid_transform = _data_transforms_cifar100(config)
+        train_data = dset.CIFAR100(
+            root=data, train=True, download=True, transform=train_transform
+        )
+        if augmix_eval:
+            train_data = AugMixDataset(train_data)
+        test_data = dset.CIFAR100(
+            root=data, train=False, download=True, transform=valid_transform
+        )
+    elif dataset == "svhn":
+        train_transform, valid_transform = _data_transforms_svhn(config)
+        train_data = dset.SVHN(
+            root=data, split="train", download=True, transform=train_transform
+        )
+        if augmix_eval:
+            train_data = AugMixDataset(train_data) 
+        test_data = dset.SVHN(
+            root=data, split="test", download=True, transform=valid_transform
+        )
+    elif dataset == "ImageNet16-120":
+        from naslib.utils.DownsampledImageNet import ImageNet16
+
+        train_transform, valid_transform = _data_transforms_ImageNet_16_120(config)
+        data_folder = f"{data}/{dataset}"
+        train_data = ImageNet16(
+            root=data_folder,
+            train=True,
+            transform=train_transform,
+            use_num_of_class_only=120,
+        )
+        if augmix_eval:
+            train_data = AugMixDataset(train_data)
+        test_data = ImageNet16(
+            root=data_folder,
+            train=False,
+            transform=valid_transform,
+            use_num_of_class_only=120,
+        )
+    elif dataset == 'jigsaw':
+        cfg = get_jigsaw_configs()
+
+        train_data, val_data, test_data = get_datasets(cfg)
+
+        train_transform = cfg['train_transform_fn']
+        valid_transform = cfg['val_transform_fn']
+        
+    elif dataset == 'class_object':
+        cfg = get_class_object_configs()
+
+        train_data, val_data, test_data = get_datasets(cfg)
+
+        train_transform = cfg['train_transform_fn']
+        valid_transform = cfg['val_transform_fn']
+        
+    elif dataset == 'class_scene':
+        cfg = get_class_scene_configs()
+
+        train_data, val_data, test_data = get_datasets(cfg)
+
+        train_transform = cfg['train_transform_fn']
+        valid_transform = cfg['val_transform_fn']
+        
+    elif dataset == 'autoencoder':
+        cfg = get_autoencoder_configs()
+    
+        train_data, val_data, test_data = get_datasets(cfg)
+        
+        train_transform = cfg['train_transform_fn']
+        valid_transform = cfg['val_transform_fn']
+    else:
+        raise ValueError("Unknown dataset: {}".format(dataset))
+
+    num_train = len(train_data)
+    indices = list(range(num_train))
+    split = int(np.floor(config.train_portion * num_train))
+
+    train_queue = torch.utils.data.DataLoader(
+        train_data,
+        batch_size=config.batch_size,
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:split]),
+        pin_memory=True,
+        num_workers=0,
+        worker_init_fn=np.random.seed(seed+1),
+    )
+
+    valid_queue = torch.utils.data.DataLoader(
+        train_data,
+        batch_size=config.batch_size,
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
+        pin_memory=True,
+        num_workers=0,
+        worker_init_fn=np.random.seed(seed),
+    )
+
+    test_queue = torch.utils.data.DataLoader(
+        test_data,
+        batch_size=config.batch_size,
+        shuffle=False,
+        pin_memory=True,
+        num_workers=0,
+        worker_init_fn=np.random.seed(seed),
+    )
+
+    return train_queue, valid_queue, test_queue, train_transform, valid_transform
 
 def _data_transforms_cifar10(args):
     CIFAR_MEAN = [0.49139968, 0.48215827, 0.44653124]
@@ -1094,7 +1224,7 @@ class Checkpointer(fvCheckpointer):
         if not os.path.isfile(path):
             path = PathManager.get_local_path(path)
             assert os.path.isfile(path), "Checkpoint {} not found!".format(path)
-        # import ipdb;ipdb.set_trace()
+        
         checkpoint = self._load_file(path)
         incompatible = self._load_model(checkpoint)
         if (

@@ -54,7 +54,6 @@ class Trainer(object):
         self.lightweight_output = lightweight_output
         self.augmix_eval = config.evaluation.augmix
         self.augmix_search = config.search.augmix
-        self.augment = config.augment
         self.dataset = config.dataset
         try: 
             self.eval_dataset = config.evaluation.dataset
@@ -131,14 +130,14 @@ class Trainer(object):
 
             if self.optimizer.using_step_function:
                 for step, data_train in enumerate(self.train_queue):
-                    if self.augment:
+                    if self.augmix_search:
                         data_train[0] = torch.cat(data_train[0],0).cuda()
                     data_train = (
                         data_train[0].to(self.device),
                         data_train[1].to(self.device, non_blocking=True),
                     )
                     data_val = next(iter(self.valid_queue))
-                    if self.augment:
+                    if self.augmix_search:
                         data_val[0] = torch.cat(data_val[0],0).cuda()
                     data_val = (
                         data_val[0].to(self.device),
@@ -322,7 +321,6 @@ class Trainer(object):
         query = self.config.evaluation.query
         test_corr = False
         test_corr = self.config.evaluation.test_corr
-        self.augment = self.config.augment
         
         if not best_arch:
             if not search_model:
@@ -420,6 +418,10 @@ class Trainer(object):
                 logger.info("Evaluation with augmix:",self.augmix_eval)
                 if not resume_from:
                     best_arch.reset_weights(inplace=True)
+                    self.train_top1.reset()
+                    self.train_top5.reset()
+                    self.val_top1.reset()
+                    self.val_top5.reset()
 
                 (
                     self.train_queue,
@@ -442,10 +444,7 @@ class Trainer(object):
                 grad_clip = self.config.evaluation.grad_clip
                 loss = torch.nn.CrossEntropyLoss()
 
-                self.train_top1.reset()
-                self.train_top5.reset()
-                self.val_top1.reset()
-                self.val_top5.reset()
+                
 
                 # Enable drop path
                 best_arch.update_edges(
@@ -479,7 +478,7 @@ class Trainer(object):
 
                     # Train queue
                     for i, (input_train, target_train) in enumerate(self.train_queue):
-                        if self.augment:
+                        if self.augmix_eval:
                             input_train = torch.cat(input_train,0).cuda()
                         
                         input_train = input_train.to(self.device)
@@ -492,9 +491,9 @@ class Trainer(object):
                             logits_train, augmix_loss = self.jsd_loss(logits_train)
                             train_loss = loss(logits_train, target_train)
                             train_loss =  train_loss + augmix_loss
-                        elif self.augment and not self.augmix_eval:
-                            logits_train, _, _ = torch.split(logits_train, len(logits_train) // 3)
-                            train_loss = loss(logits_train, target_train)
+                        # elif self.augment and not self.augmix_eval:
+                        #     logits_train, _, _ = torch.split(logits_train, len(logits_train) // 3)
+                        #     train_loss = loss(logits_train, target_train)
                         else:
                             train_loss = loss(logits_train, target_train)
 
@@ -528,7 +527,7 @@ class Trainer(object):
                     if self.valid_queue:
                         best_arch.eval()
                         for i, (input_valid, target_valid) in enumerate(self.valid_queue):
-                            if self.augment:
+                            if self.augmix_eval:
                                 input_valid = torch.cat(input_train,0).cuda()
                             input_valid = input_valid.to(self.device).float()
                             target_valid = target_valid.to(self.device).float()
@@ -606,14 +605,14 @@ class Trainer(object):
 
     @staticmethod
     def build_search_dataloaders(config):
-        train_queue, valid_queue, test_queue, _, _ = utils.get_train_val_loaders(
+        train_queue, valid_queue, test_queue, _, _ = utils.get_train_val_loaders_search(
             config, mode="train"
         )
         return train_queue, valid_queue, _  # test_queue is not used in search currently
 
     @staticmethod
     def build_eval_dataloaders(config):
-        train_queue, valid_queue, test_queue, _, _ = utils.get_train_val_loaders(
+        train_queue, valid_queue, test_queue, _, _ = utils.get_train_val_loaders_eval(
             config, mode="val"
         )
         return train_queue, valid_queue, test_queue
