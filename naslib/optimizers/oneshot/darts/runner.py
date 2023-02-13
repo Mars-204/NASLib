@@ -4,7 +4,8 @@ import sys
 import naslib as nl
 
 
-from naslib.defaults.trainer import Trainer
+# from naslib.defaults.trainer import Trainer
+from naslib.defaults.trainer_multi import Trainer
 from naslib.optimizers import (
     DARTSOptimizer,
     GDASOptimizer,
@@ -67,7 +68,8 @@ optimizer = supported_optimizers[config.optimizer]
 print(optimizer)
 optimizer.adapt_search_space(search_space)
 
-trainer = Trainer(optimizer, config, lightweight_output=True)
+# trainer = Trainer(optimizer, config, lightweight_output=True)
+trainer = Trainer(optimizer, config)
 trainer.search()
 # checkpoint = utils.get_last_checkpoint(config,search = True)
 # trainer.search(resume_from=checkpoint)
