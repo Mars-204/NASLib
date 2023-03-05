@@ -71,7 +71,7 @@ class ImageNet16(data.Dataset):
         # now load the picked numpy arrays
         for i, (file_name, checksum) in enumerate(downloaded_list):
             file_path = os.path.join(self.root, file_name)
-            # print ('Load {:}/{:02d}-th : {:}'.format(i, len(downloaded_list), file_path))
+            print ('Load {:}/{:02d}-th : {:}'.format(i, len(downloaded_list), file_path))
             with open(file_path, "rb") as f:
                 if sys.version_info[0] == 2:
                     entry = pickle.load(f)

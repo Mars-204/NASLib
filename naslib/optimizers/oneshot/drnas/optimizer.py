@@ -64,6 +64,7 @@ class DrNASOptimizer(DARTSOptimizer):
         self.epochs = config.search.epochs
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.augmix = config.search.augmix   # JSD loss configured
+        self.search_space = config.search_space
 
     def new_epoch(self, epoch):
         super().new_epoch(epoch)
@@ -122,7 +123,7 @@ class DrNASOptimizer(DARTSOptimizer):
         # Update op weights
         self.op_optimizer.zero_grad()
         logits_train = self.graph(input_train)
-        if self.augmix :
+        if self.augmix_search :
             logits_train, augmix_loss = self.jsd_loss(logits_train)
             train_loss = self.loss(logits_train, target_train) + augmix_loss
         # elif self.augment and not self.augmix:
@@ -170,7 +171,12 @@ class DrNASOptimizer(DARTSOptimizer):
                 [a for a in self.architectural_weights]
             )
         )
+        # if self.config.search_space=='nasbench301':
+        #     import copy
+        #     graph = copy.copy(self.graph).unparse()
+        # else:
         graph = self.graph.clone().unparse()
+        
         graph.prepare_discretization()
 
         def discretize_ops(edge):

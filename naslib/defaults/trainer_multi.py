@@ -3,6 +3,7 @@ import time
 import json
 import logging
 import os
+import numpy as np
 import torch
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
@@ -45,6 +46,11 @@ class Trainer(object):
         self.optimizer = optimizer
         self.config = config
         self.epochs = self.config.search.epochs
+        self.dataset = config.dataset
+        try: 
+            self.eval_dataset = config.evaluation.dataset
+        except Exception as e:
+            self.eval_dataset = self.dataset
 
         # preparations
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -57,6 +63,9 @@ class Trainer(object):
         self.val_top1 = utils.AverageMeter()
         self.val_top5 = utils.AverageMeter()
         self.val_loss = utils.AverageMeter()
+        self.augmix_search = config.search.augmix
+        self.augmix_eval = config.evaluation.augmix
+        test_corr = self.config.evaluation.test_corr
 
         n_parameters = optimizer.get_model_size()
         logger.info("param size = %fMB", n_parameters)
@@ -69,8 +78,10 @@ class Trainer(object):
                 "test_acc": [],
                 "test_loss": [],
                 "runtime": [],
+                "train_time": [],
                 "arch_eval": [],
                 "params": n_parameters,
+                "mCE":[],
             }
         )
 
@@ -85,6 +96,10 @@ class Trainer(object):
                 train from scratch.
         """
         logger.info("Start training")
+        logger.info('Search with augmix:',self.augmix_search)
+
+        np.random.seed(self.config.search.seed)
+        torch.manual_seed(self.config.search.seed)
         self.optimizer.before_training()
         checkpoint_freq = self.config.search.checkpoint_freq
         if self.optimizer.using_step_function:
@@ -93,10 +108,10 @@ class Trainer(object):
             )
 
             start_epoch = self._setup_checkpointers(
-                resume_from, period=checkpoint_freq, scheduler=self.scheduler
+                resume_from,search=True, period=checkpoint_freq, scheduler=self.scheduler
             )
         else:
-            start_epoch = self._setup_checkpointers(resume_from, period=checkpoint_freq)
+            start_epoch = self._setup_checkpointers(resume_from,search=True, period=checkpoint_freq)
 
         self.train_queue, self.valid_queue, _ = self.build_search_dataloaders(
             self.config
@@ -110,17 +125,23 @@ class Trainer(object):
                 for step, (data_train, data_val) in enumerate(
                     zip(self.train_queue, self.valid_queue)
                 ):
+                    # import ipdb; ipdb.set_trace()
+                    if self.augmix_search:
+                        data_train[0] = torch.cat(data_train[0],0).cuda()
                     data_train = (
                         data_train[0].to(self.device),
                         data_train[1].to(self.device, non_blocking=True),
                     )
+                    data_val = next(iter(self.valid_queue))
+                    if self.augmix_search:
+                        data_val[0] = torch.cat(data_val[0],0).cuda()
                     data_val = (
                         data_val[0].to(self.device),
                         data_val[1].to(self.device, non_blocking=True),
                     )
 
                     stats = self.optimizer.step(data_train, data_val)
-                    logits_train, logits_val, train_loss, val_loss = stats
+                    logits_train, logits_val, train_loss, val_loss = stats  # JSD loss implemented in optimizer.py. Train loss contains JSD loss
 
                     self._store_accuracies(logits_train, data_train[1], "train")
                     self._store_accuracies(logits_val, data_val[1], "val")
@@ -219,6 +240,7 @@ class Trainer(object):
                 # For multiprocessing distributed training, rank needs to be the
                 # global rank among all processes
                 args.rank = args.rank * ngpus_per_node + gpu
+            args.rank = args.rank * ngpus_per_node + gpu
             dist.init_process_group(
                 backend=args.dist_backend,
                 init_method=args.dist_url,
@@ -326,12 +348,23 @@ class Trainer(object):
 
             # Train queue
             for i, (input_train, target_train) in enumerate(self.train_queue):
+                if self.augmix_eval:
+                    input_train = torch.cat(input_train,0).cuda()
                 input_train = input_train.to(self.device)
                 target_train = target_train.to(self.device, non_blocking=True)
 
                 optim.zero_grad()
                 logits_train = best_arch(input_train)
-                train_loss = loss(logits_train, target_train)
+                if self.augmix_eval:
+                    logits_train, augmix_loss = self.jsd_loss(logits_train)
+                    train_loss = loss(logits_train, target_train)
+                    train_loss =  train_loss + augmix_loss
+                # elif self.augment and not self.augmix_eval:
+                #     logits_train, _, _ = torch.split(logits_train, len(logits_train) // 3)
+                #     train_loss = loss(logits_train, target_train)
+                else:
+                    train_loss = loss(logits_train, target_train)
+                # train_loss = loss(logits_train, target_train)
                 if hasattr(best_arch, "auxilary_logits"):  # darts specific stuff
                     log_first_n(logging.INFO, "Auxiliary is used", n=10)
                     auxiliary_loss = loss(best_arch.auxilary_logits(), target_train)
@@ -362,7 +395,8 @@ class Trainer(object):
             # Validation queue
             if self.valid_queue:
                 for i, (input_valid, target_valid) in enumerate(self.valid_queue):
-
+                    if self.augmix_eval:
+                        input_valid = torch.cat(input_train,0).cuda()
                     input_valid = input_valid.to(self.device).float()
                     target_valid = target_valid.to(
                         self.device, non_blocking=True
@@ -370,11 +404,21 @@ class Trainer(object):
 
                     # just log the validation accuracy
                     logits_valid = best_arch(input_valid)
+                    if self.augmix_eval:
+                        logits_valid,_ ,_ = torch.split(logits_train, len(logits_valid) // 3)
                     self._store_accuracies(logits_valid, target_valid, "val")
 
             scheduler.step()
             self.periodic_checkpointer.step(e)
             self._log_and_reset_accuracies(e)
+
+            if self.test_corr:
+                mean_CE = utils.test_corr(best_arch, self.eval_dataset, self.config)
+                logger.info(
+                "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
+                    mean_CE
+                )
+            )
 
     def evaluate(
         self,
@@ -418,8 +462,24 @@ class Trainer(object):
                 self.config.evaluation.world_size > 1
                 or self.config.evaluation.multiprocessing_distributed
             )
+            best_arch = self.optimizer.get_final_architecture()
+            import ipdb; ipdb.set_trace()
             ngpus_per_node = torch.cuda.device_count()
-
+            self.config.evaluation.world_size = (
+                    ngpus_per_node * self.config.evaluation.world_size
+                )
+                # Use torch.multiprocessing.spawn to launch distributed
+                # processes: the main_worker process function
+            mp.spawn(
+                self.main_worker,
+                nprocs=ngpus_per_node,
+                args=(
+                    ngpus_per_node,
+                    self.config.evaluation,
+                    search_model,
+                    best_arch,
+                ),
+            )
             if self.config.evaluation.multiprocessing_distributed:
                 # Since we have ngpus_per_node processes per node, the
                 # total world_size needs to be adjusted
@@ -493,14 +553,14 @@ class Trainer(object):
 
     @staticmethod
     def build_search_dataloaders(config):
-        train_queue, valid_queue, test_queue, _, _ = utils.get_train_val_loaders(
+        train_queue, valid_queue, test_queue, _, _ = utils.get_train_val_loaders_search(
             config, mode="train"
         )
         return train_queue, valid_queue, _  # test_queue is not used in search currently
 
     @staticmethod
     def build_eval_dataloaders(config):
-        train_queue, valid_queue, test_queue, _, _ = utils.get_train_val_loaders(
+        train_queue, valid_queue, test_queue, _, _ = utils.get_train_val_loaders_eval(
             config, mode="val"
         )
         return train_queue, valid_queue, test_queue
@@ -594,13 +654,13 @@ class Trainer(object):
         """
         checkpointables = self.optimizer.get_checkpointables()
         checkpointables.update(add_checkpointables)
-
+        # import ipdb; ipdb.set_trace()
         checkpointer = utils.Checkpointer(
-            model=checkpointables.pop("model"),
+            model=checkpointables.pop("graph"),
             save_dir=self.config.save + "/search"
             if search
             else self.config.save + "/eval",
-            **checkpointables
+            # **checkpointables
         )
 
         self.periodic_checkpointer = PeriodicCheckpointer(

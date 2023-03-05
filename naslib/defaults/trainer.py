@@ -16,7 +16,7 @@ import pickle
 import bz2
 import _pickle as cPickle
 from fvcore.common.checkpoint import PeriodicCheckpointer
-# from fvcore.common.checkpoint import Checkpointer
+from naslib.search_spaces.nasbench201.conversions import convert_naslib_to_str
 
 from naslib.search_spaces.core.query_metrics import Metric
 
@@ -327,13 +327,14 @@ class Trainer(object):
                 search_model = os.path.join(
                     self.config.save, "search", "model_final.pth"
                 )
-            # import ipdb; ipdb.set_trace()
+            
+            self.optimizer.before_training()
             self._setup_checkpointers(search_model)  # required to load the architecture
             best_arch = self.optimizer.get_final_architecture()
-            
+     
         ## obtaining test accuracies from NASBench201API
-                    
-        if best_arch.QUERYABLE and self.config.search_space=='nasbench201'and query and not resume_from:
+      
+        if best_arch.QUERYABLE and self.config.search_space=='nasbench201'and query :
             if metric is None:
                 metric = Metric.TEST_ACCURACY
             result = best_arch.query(
@@ -342,7 +343,6 @@ class Trainer(object):
             logger.info("Queried results ({}): {}".format(metric, result))
 
             #from nas_201_api import NASBench201API as API #pip install nas-bench-201
-            from naslib.search_spaces.nasbench201.conversions import convert_naslib_to_str
             #api = API("/work/dlclarge2/agnihotr-ml/nas301_test_acc/NASLib/naslib/data/NAS-Bench-201-v1_1-096897.pth") #path to the API please refer to https://github.com/D-X-Y/NAS-Bench-201 for downloading
             #api = API("/work/dlclarge2/agnihotr-ml/NASLib/naslib/data/NAS-Bench-201-v1_0-e61699.pth")
 
@@ -376,9 +376,19 @@ class Trainer(object):
             logger.info("TEST ACCURACIES: \n\t{}: {}\n\t{}: {}\n\t{}: {}".format('cifar10', cifar10_acc, 'cifar100', cifar100_acc, 'ImageNet16-120', img_acc))
 
             config = api.get_net_config(index, 'cifar10')
-            best_arch = get_cell_based_tiny_net(config)
+            best_arch_c10 = get_cell_based_tiny_net(config)
             params = api.get_net_param(index, 'cifar10', None , hp = '200')
-            best_arch.load_state_dict(next(iter(params.values())))
+            best_arch_c10.load_state_dict(next(iter(params.values())))
+
+            config = api.get_net_config(index, 'cifar100')
+            best_arch_c100 = get_cell_based_tiny_net(config)
+            params = api.get_net_param(index, 'cifar100', None , hp = '200')
+            best_arch_c100.load_state_dict(next(iter(params.values())))
+
+            config = api.get_net_config(index, 'ImageNet16-120')
+            best_arch_I16 = get_cell_based_tiny_net(config)
+            params = api.get_net_param(index, 'ImageNet16-120', None , hp = '200')
+            best_arch_I16.load_state_dict(next(iter(params.values())))
 
             self.best_c10_acc = cifar10_acc
             self.best_c100_acc = cifar100_acc
@@ -389,7 +399,7 @@ class Trainer(object):
             ### querying robustness results from xnas
         
             if test_corr:
-                mean_CE = utils.test_corr_NATS(best_arch, self.eval_dataset, self.config)
+                mean_CE = utils.test_corr_NATS(best_arch_c10, best_arch_c100, best_arch_I16, self.eval_dataset, self.config)
                 logger.info(
                 "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
                     mean_CE
@@ -418,11 +428,6 @@ class Trainer(object):
                 logger.info("Evaluation with augmix:",self.augmix_eval)
                 if not resume_from:
                     best_arch.reset_weights(inplace=True)
-                    self.train_top1.reset()
-                    self.train_top5.reset()
-                    self.val_top1.reset()
-                    self.val_top5.reset()
-
                 (
                     self.train_queue,
                     self.valid_queue,
@@ -443,8 +448,11 @@ class Trainer(object):
 
                 grad_clip = self.config.evaluation.grad_clip
                 loss = torch.nn.CrossEntropyLoss()
-
                 
+                self.train_top1.reset()
+                self.train_top5.reset()
+                self.val_top1.reset()
+                self.val_top5.reset()
 
                 # Enable drop path
                 best_arch.update_edges(
@@ -736,7 +744,7 @@ class Trainer(object):
             if search
             else self.config.evaluation.epochs,
         )
-        # import ipdb; ipdb.set_trace()
+    
         if resume_from:
             logger.info("loading model from file {}".format(resume_from))
             checkpoint = checkpointer.resume_or_load(resume_from, resume=True)

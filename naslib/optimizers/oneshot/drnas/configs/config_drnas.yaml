@@ -4,6 +4,7 @@ seed: 10
 search_space: nasbench201
 out_dir: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/optimizers/oneshot/drnas
 optimizer: drnas
+test_dataset : ImageNet16-120
 
 search:
  
