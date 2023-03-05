@@ -5,7 +5,7 @@ import naslib as nl
 
 
 # from naslib.defaults.trainer import Trainer
-from naslib.defaults.trainer_multi import Trainer
+from naslib.defaults.trainer import Trainer
 from naslib.optimizers import (
     DARTSOptimizer,
     GDASOptimizer,
@@ -19,7 +19,7 @@ from naslib.optimizers import (
     DrNASOptimizer,
 )
 
-from naslib.search_spaces import NasBench201SearchSpace, DartsSearchSpace, NasBench101SearchSpace, NATSBenchSizeSearchSpace
+from naslib.search_spaces import NasBench201SearchSpace, DartsSearchSpace, NasBench101SearchSpace, NATSBenchSizeSearchSpace, NasBench301SearchSpace
 from naslib.utils import utils, setup_logger, get_dataset_api
 from naslib.search_spaces.core.query_metrics import Metric
 
@@ -55,6 +55,7 @@ supported_search_space ={
     "darts" : DartsSearchSpace(),#num_classes),
     "nasbench101" : NasBench101SearchSpace(),#num_classes)
     "natsbenchsize" : NATSBenchSizeSearchSpace(),
+    "nasbench301" : NasBench301SearchSpace()
 }
 
 #search_space = NasBench201SearchSpace()
