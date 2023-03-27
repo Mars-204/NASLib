@@ -396,16 +396,17 @@ class Trainer(object):
             self.model_path = search_model
             # self.architecture = best_arch.modules_str()
 
-            ### querying robustness results from xnas
+            ### Calculating the corruption accuracies
         
-            if test_corr:
-                mean_CE = utils.test_corr_NATS(best_arch_c10, best_arch_c100, best_arch_I16, self.eval_dataset, self.config)
-                logger.info(
-                "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
-                    mean_CE
-                )
-            ) 
+            # if test_corr:
+            #     mean_CE = utils.test_corr_NATS(best_arch_c10, best_arch_c100, best_arch_I16, self.dataset, self.config)
+            #     logger.info(
+            #     "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
+            #         mean_CE
+            #     )
+            # ) 
         best_arch = self.optimizer.get_final_architecture()
+        print(best_arch)
         if best_arch.QUERYABLE and not retrain:
             if metric is None:
                 metric = Metric.TEST_ACCURACY
@@ -433,7 +434,6 @@ class Trainer(object):
                     self.valid_queue,
                     self.test_queue,
                 ) = self.build_eval_dataloaders(self.config)
-
                 optim = self.build_eval_optimizer(best_arch.parameters(), self.config)
                 scheduler = self.build_eval_scheduler(optim, self.config)
 
@@ -494,7 +494,6 @@ class Trainer(object):
 
                         optim.zero_grad()
                         logits_train = best_arch(input_train)
-                        
                         if self.augmix_eval:
                             logits_train, augmix_loss = self.jsd_loss(logits_train)
                             train_loss = loss(logits_train, target_train)
@@ -515,6 +514,7 @@ class Trainer(object):
                             train_loss += (
                                 self.config.evaluation.auxiliary_weight * auxiliary_loss
                             )
+                        
                         train_loss.backward()
                         if grad_clip:
                             torch.nn.utils.clip_grad_norm_(
@@ -594,7 +594,7 @@ class Trainer(object):
                 )
             )
             if test_corr:
-                mean_CE = utils.test_corr(best_arch, self.eval_dataset, self.config)
+                mean_CE = utils.test_corr(best_arch, self.dataset, self.config)
                 logger.info(
                 "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
                     mean_CE

@@ -163,7 +163,7 @@ class DARTSOptimizer(MetaOptimizer):
             logits_val = self.graph(input_val)
             if self.augmix_search:
                 logits_val, _, _ = torch.split(logits_val, len(logits_val) // 3)
-            val_loss = self.loss(logits_val, target_val)
+            val_loss = self.loss(logits_val, target_val) 
             val_loss.backward()
 
             self.arch_optimizer.step()
@@ -200,6 +200,10 @@ class DARTSOptimizer(MetaOptimizer):
                 [a for a in self.architectural_weights]
             )
         )
+        # import ipdb; ipdb.set_trace()
+        # if self.config.search_space =='nasbench301':
+        # import copy
+        # graph = copy.copy(self.graph).unparse()
         graph = self.graph.clone().unparse()
         graph.prepare_discretization()
 

@@ -1,6 +1,6 @@
 dataset: cifar10
 data: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/data
-seed: 10
+seed: 0
 search_space: nasbench201
 out_dir: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/optimizers/oneshot/darts
 optimizer: darts
@@ -103,6 +103,8 @@ search:
 
 
 evaluation:
+  # dataset: cifar100
+  dataset: ImageNet16-120
   checkpoint_freq: 30
   batch_size: 64
   learning_rate: 0.025
@@ -115,12 +117,12 @@ evaluation:
   train_portion: 1.
   data_size: 50000
 
-  cutout: True
+  cutout: False
   cutout_length: 16
   cutout_prob: 1.0
   drop_path_prob: 0.3
   auxiliary_weight: 0.4
-  augmix: False
+  augmix: True
   test_corr: True
   query: True
   gpu: 2

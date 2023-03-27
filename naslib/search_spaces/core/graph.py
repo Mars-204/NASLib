@@ -81,6 +81,7 @@ class Graph(torch.nn.Module, nx.DiGraph):
     If this is set to true then `query()` should be implemented.
     """
     QUERYABLE = False
+    NUM_CLASSES = 120 ## By default it is 10 for Cifar-10. Change accordingly for different eval dataset
 
     def __init__(self, name: str = None, scope: str = None):
         """
@@ -102,6 +103,8 @@ class Graph(torch.nn.Module, nx.DiGraph):
             >>> my_graph_42_classes = MyGraph()
 
         """
+        # import ipdb; ipdb.set_trace()
+        # self.num_classes = self.NUM_CLASSES if hasattr(self, 'NUM_CLASSES') else 100
         # super().__init__()
         nx.DiGraph.__init__(self)
         torch.nn.Module.__init__(self)

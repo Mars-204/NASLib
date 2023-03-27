@@ -2,12 +2,11 @@ import numpy as np
 from PIL import Image
 from .corruptions import *
 
-# corruption_tuple = (gaussian_noise, shot_noise, impulse_noise, defocus_blur,
-#                     glass_blur, motion_blur, zoom_blur, snow, frost, fog,
-#                     brightness, contrast, elastic_transform, pixelate, jpeg_compression,
-#                      speckle_noise, gaussian_blur, spatter, saturate)
+corruption_tuple = (gaussian_noise, shot_noise, impulse_noise, defocus_blur,
+                    glass_blur, motion_blur, zoom_blur, snow, frost, fog,
+                    brightness, contrast, elastic_transform, pixelate, jpeg_compression,
+                     speckle_noise, gaussian_blur, spatter, saturate)
 
-corruption_tuple =  (saturate,spatter)
 corruption_dict = {corr_func.__name__: corr_func for corr_func in corruption_tuple}
 
 

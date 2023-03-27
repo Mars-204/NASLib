@@ -84,7 +84,6 @@ class DrNASOptimizer(DARTSOptimizer):
     def step(self, data_train, data_val):
         input_train, target_train = data_train
         input_val, target_val = data_val
-
         # sample weights (alphas) from the dirichlet distribution (parameterized by beta) and set to edges
         self.graph.update_edges(
             update_func=lambda edge: self.sample_alphas(edge),
@@ -175,8 +174,8 @@ class DrNASOptimizer(DARTSOptimizer):
         #     import copy
         #     graph = copy.copy(self.graph).unparse()
         # else:
+        #     graph = self.graph.clone().unparse()
         graph = self.graph.clone().unparse()
-        
         graph.prepare_discretization()
 
         def discretize_ops(edge):

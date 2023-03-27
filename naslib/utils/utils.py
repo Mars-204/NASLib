@@ -294,6 +294,7 @@ def get_train_val_loaders_search(config, mode):
     """
     data = config.data
     dataset = config.dataset
+    # dataset = config.evaluation.dataset
     augmix_search = config.search.augmix
     augmix_eval = config.evaluation.augmix
     
@@ -344,6 +345,7 @@ def get_train_val_loaders_search(config, mode):
             transform=train_transform,
             use_num_of_class_only=120,
         )
+        augmentations.IMAGE_SIZE = 16
         if augmix_search:
             train_data = AugMixDataset(train_data)
         test_data = ImageNet16(
@@ -425,9 +427,9 @@ def get_train_val_loaders_eval(config, mode):
     Constructs the dataloaders and transforms for training, validation and test data.
     """
     data = config.data
-    dataset = config.dataset
+    # dataset = config.dataset
+    dataset = config.evaluation.dataset
     augmix_eval = config.evaluation.augmix
-    
     
     seed = config.seed
     config = config.search if mode == "train" else config.evaluation
@@ -475,6 +477,7 @@ def get_train_val_loaders_eval(config, mode):
             transform=train_transform,
             use_num_of_class_only=120,
         )
+        augmentations.IMAGE_SIZE = 16
         if augmix_eval:
             train_data = AugMixDataset(train_data)
         test_data = ImageNet16(
@@ -483,7 +486,6 @@ def get_train_val_loaders_eval(config, mode):
             transform=valid_transform,
             use_num_of_class_only=120,
         )
-        test_data = imagenet_c(test_data)
     elif dataset == 'jigsaw':
         cfg = get_jigsaw_configs()
 
@@ -660,13 +662,13 @@ def _data_transforms_ImageNet_16_120(args):
             transforms.Normalize(IMAGENET16_MEAN, IMAGENET16_STD),
         ]
     )
-    # if args.cutout:
-    #     train_transform.transforms.append(Cutout(args.cutout_length, args.cutout_prob))
+    if args.cutout:
+        train_transform.transforms.append(Cutout(args.cutout_length, args.cutout_prob))
 
     valid_transform = transforms.Compose(
         [
             transforms.ToTensor(),
-            # transforms.Normalize(IMAGENET16_MEAN, IMAGENET16_STD),
+            transforms.Normalize(IMAGENET16_MEAN, IMAGENET16_STD),           
         ]
     )
     return train_transform, valid_transform
@@ -1355,50 +1357,50 @@ def test_corr_NATS(net_c10, net_c100, net_I16, dataset, config):
     # CIFAR-10-C test
                
     print('corruption with cifar10-C')
-    for corruption in CORRUPTIONS:
-        # Reference to original data is mutated
-        test_data.data = np.load(base_path + corruption + '.npy')
-        test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
+    # for corruption in CORRUPTIONS:
+    #     # Reference to original data is mutated
+    #     test_data.data = np.load(base_path + corruption + '.npy')
+    #     test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
 
-        test_loader = torch.utils.data.DataLoader(
-            test_data,
-            batch_size=64,
-            shuffle=False,
-            num_workers=0,
-            pin_memory=True)
+    #     test_loader = torch.utils.data.DataLoader(
+    #         test_data,
+    #         batch_size=64,
+    #         shuffle=False,
+    #         num_workers=0,
+    #         pin_memory=True)
 
-        test_acc = test_NATS(net_c10, test_loader,config)
-        corruption_accs_10.append(test_acc)
-        logger.info('{}\n\tTest Error {:.3f}'.format(
-            corruption, 100 - 100. * test_acc))
-    print('mCE_Cifar-10')
-    print(1 - np.mean(corruption_accs_10))
+    #     test_acc = test_NATS(net_c10, test_loader,config)
+    #     corruption_accs_10.append(test_acc)
+    #     logger.info('{}\n\tTest Error {:.3f}'.format(
+    #         corruption, 100 - 100. * test_acc))
+    # print('mCE_Cifar-10')
+    # print(1 - np.mean(corruption_accs_10))
 
     ## CIFAR-100-C test
-    corruption_accs_100 = []
-    base_path = bp + "CIFAR-100-C/"
-    test_data = dset.CIFAR100(
-            root=config.data, train=False, download=True, transform=test_transform
-        )
-    print('corruption with cifar100-C')
-    for corruption in CORRUPTIONS:
-        # Reference to original data is mutated
-        test_data.data = np.load(base_path + corruption + '.npy')
-        test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
+    # corruption_accs_100 = []
+    # base_path = bp + "CIFAR-100-C/"
+    # test_data = dset.CIFAR100(
+    #         root=config.data, train=False, download=True, transform=test_transform
+    #     )
+    # print('corruption with cifar100-C')
+    # for corruption in CORRUPTIONS:
+    #     # Reference to original data is mutated
+    #     test_data.data = np.load(base_path + corruption + '.npy')
+    #     test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
 
-        test_loader = torch.utils.data.DataLoader(
-            test_data,
-            batch_size=64,
-            shuffle=False,
-            num_workers=0,
-            pin_memory=True)
+    #     test_loader = torch.utils.data.DataLoader(
+    #         test_data,
+    #         batch_size=64,
+    #         shuffle=False,
+    #         num_workers=0,
+    #         pin_memory=True)
 
-        test_acc = test_NATS(net_c100, test_loader,config)
-        corruption_accs_100.append(test_acc)
-        logger.info('{}\n\t Test Error {:.3f}'.format(
-            corruption, 100 - 100. * test_acc))
-    print('mCE_Cifar-100')
-    print(1 - np.mean(corruption_accs_100))
+    #     test_acc = test_NATS(net_c100, test_loader,config)
+    #     corruption_accs_100.append(test_acc)
+    #     logger.info('{}\n\t Test Error {:.3f}'.format(
+    #         corruption, 100 - 100. * test_acc))
+    # print('mCE_Cifar-100')
+    # print(1 - np.mean(corruption_accs_100))
 
     # ImageNet16-120 test
     # import ipdb; ipdb.set_trace()
@@ -1479,32 +1481,35 @@ def test_corr(net, dataset, config):
         corruption_accs_10.append(test_acc)
         logger.info('{}\n\t Test Error {:.3f}'.format(
             corruption, 100 - 100. * test_acc))
+   
+    print('mCE_Cifar-10C')
+    print(1 - np.mean(corruption_accs_10))
     
     # CIFAR-100-C test
-    corruption_accs_100 =[]
-    base_path = bp + "CIFAR-100-C/"
-    test_data = dset.CIFAR100(
-            root=config.data, train=False, download=True, transform=test_transform
-        )
-    print('corruption with cifar100-C')
-    for corruption in CORRUPTIONS:
-        # Reference to original data is mutated
-        test_data.data = np.load(base_path + corruption + '.npy')
-        test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
+    # corruption_accs_100 =[]
+    # base_path = bp + "CIFAR-100-C/"
+    # test_data = dset.CIFAR100(
+    #         root=config.data, train=False, download=True, transform=test_transform
+    #     )
+    # print('corruption with cifar100-C')
+    # for corruption in CORRUPTIONS:
+    #     # Reference to original data is mutated
+    #     test_data.data = np.load(base_path + corruption + '.npy')
+    #     test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
 
-        test_loader = torch.utils.data.DataLoader(
-            test_data,
-            batch_size=64,
-            shuffle=False,
-            num_workers=0,
-            pin_memory=True)
+    #     test_loader = torch.utils.data.DataLoader(
+    #         test_data,
+    #         batch_size=64,
+    #         shuffle=False,
+    #         num_workers=0,
+    #         pin_memory=True)
 
-        test_acc = test(net, test_loader,config)
-        corruption_accs_100.append(test_acc)
-        logger.info('{}\n\tTest Error {:.3f}'.format(
-            corruption, 100 - 100. * test_acc))
-    print('mCE_Cifar-100C')
-    print(1 - np.mean(corruption_accs_100))
+    #     test_acc = test(net, test_loader,config)
+    #     corruption_accs_100.append(test_acc)
+    #     logger.info('{}\n\tTest Error {:.3f}'.format(
+    #         corruption, 100 - 100. * test_acc))
+    # print('mCE_Cifar-100C')
+    # print(1 - np.mean(corruption_accs_100))
 
     ## ImageNet-16-120C tests
 
@@ -1570,7 +1575,6 @@ def aug(image):
   aug_list = augmentations.augmentations_all
   ws = np.float32(np.random.dirichlet([1] * mixture_width))
   m = np.float32(np.random.beta(1, 1))
-
   mix = torch.zeros_like(image)
   image = transforms.ToPILImage()(image)
   for i in range(mixture_width):
