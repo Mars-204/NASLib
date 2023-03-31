@@ -55,6 +55,7 @@ class Trainer(object):
         self.augmix_eval = config.evaluation.augmix
         self.augmix_search = config.search.augmix
         self.dataset = config.dataset
+        self.jsd_factor = config.jsd_factor
         try: 
             self.eval_dataset = config.evaluation.dataset
         except Exception as e:
@@ -398,13 +399,13 @@ class Trainer(object):
 
             ### Calculating the corruption accuracies
         
-            # if test_corr:
-            #     mean_CE = utils.test_corr_NATS(best_arch_c10, best_arch_c100, best_arch_I16, self.dataset, self.config)
-            #     logger.info(
-            #     "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
-            #         mean_CE
-            #     )
-            # ) 
+            if test_corr:
+                mean_CE = utils.test_corr_NATS(best_arch_c10, best_arch_c100, best_arch_I16, self.dataset, self.config)
+                logger.info(
+                "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
+                    mean_CE
+                )
+            ) 
         best_arch = self.optimizer.get_final_architecture()
         print(best_arch)
         if best_arch.QUERYABLE and not retrain:
@@ -606,7 +607,7 @@ class Trainer(object):
         p_clean, p_aug1, p_aug2 = F.softmax(logits_train, dim=1), F.softmax(logits_aug1, dim=1), F.softmax(logits_aug2, dim=1)
 
         p_mixture = torch.clamp((p_clean + p_aug1 + p_aug2) / 3., 1e-7, 1).log()
-        augmix_loss = 12 * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
+        augmix_loss = self.jsd_factor * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
                 F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
                 F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3.
         return logits_train, augmix_loss

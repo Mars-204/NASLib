@@ -2,8 +2,9 @@ dataset: cifar10
 data: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/data/nb201_cifar10_full_training.pickle
 seed: 0
 search_space: nasbench201
-out_dir: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/optimizers/oneshot/gdas
+out_dir: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/optimizers/oneshot/gdas/jsd_factor/jsd_3
 optimizer: gdas
+jsd_factor : 3
 
 search:
  
@@ -59,7 +60,7 @@ search:
   grad_clip: 5
   train_portion: 0.5
   data_size: 25000
-  augmix: False
+  augmix: True
   test_corr: True
   
   # RE
@@ -101,14 +102,14 @@ search:
 
 evaluation:
   # dataset: cifar100
-  dataset: ImageNet16-120
+  # dataset: ImageNet16-120
   checkpoint_freq: 30
   batch_size: 64
   learning_rate: 0.025
   learning_rate_min: 0.00
   momentum: 0.9
   weight_decay: 0.0003
-  epochs: 200
+  epochs: 20
   warm_start_epochs: 0
   grad_clip: 5
   train_portion: 1.
@@ -119,6 +120,6 @@ evaluation:
   cutout_prob: 1.0
   drop_path_prob: 0.2
   auxiliary_weight: 0.4
-  augmix: True
+  augmix: False
   test_corr: True
   query: True

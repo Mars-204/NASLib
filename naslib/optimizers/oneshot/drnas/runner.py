@@ -68,7 +68,7 @@ optimizer = supported_optimizers[config.optimizer]
 optimizer.adapt_search_space(search_space)
 
 trainer = Trainer(optimizer, config, lightweight_output=True)
-# trainer.search()
+trainer.search()
 # checkpoint = utils.get_last_checkpoint(config,search = True)
 # trainer.search(resume_from=checkpoint)
 # if not config.eval_only:
@@ -89,9 +89,9 @@ trainer = Trainer(optimizer, config, lightweight_output=True)
 # import ipdb; ipdb.set_trace
 # checkpoint = utils.get_last_checkpoint(config, search=True) 
 # trainer.search(resume_from=checkpoint) 
-# trainer.evaluate(dataset_api = dataset_api, retrain = True, metric = Metric.VAL_ACCURACY)
+trainer.evaluate(dataset_api = dataset_api, retrain = True, metric = Metric.VAL_ACCURACY)
 # trainer.evaluate(dataset_api=dataset_api,search_model="/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/nasbench201/cifar10/drnas/10/search/model_final.pth",resume_from=checkpoint, retrain=True, metric=Metric.VAL_ACCURACY)
-checkpoint = utils.get_last_checkpoint(config, search=False)
-trainer.evaluate(dataset_api = dataset_api, resume_from=checkpoint, retrain = True, metric = Metric.VAL_ACCURACY)
+# checkpoint = utils.get_last_checkpoint(config, search=False)
+# trainer.evaluate(dataset_api = dataset_api, resume_from=checkpoint, retrain = True, metric = Metric.VAL_ACCURACY)
 #trainer.evaluate(dataset_api=dataset_api, metric=Metric.VAL_ACCURACY, search_model=best_nb301)
 #trainer.evaluate_oneshot()
