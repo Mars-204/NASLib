@@ -71,7 +71,7 @@ optimizer.adapt_search_space(search_space)
 
 # trainer = Trainer(optimizer, config, lightweight_output=True)
 trainer = Trainer(optimizer, config)
-# trainer.search()
+trainer.search()
 
 if config.evaluation.dataset =='cifar100':
     num_classes=100
@@ -101,8 +101,8 @@ dataset_api = get_dataset_api(config.search_space, config.dataset)
 
 # checkpoint = utils.get_last_checkpoint(config, search=True) 
 # trainer.search(resume_from=checkpoint)
-# trainer.evaluate(dataset_api = dataset_api, retrain = True, metric = Metric.VAL_ACCURACY)
-checkpoint = utils.get_last_checkpoint(config, search=False)
-trainer.evaluate(dataset_api = dataset_api, resume_from=checkpoint, retrain = True, metric = Metric.VAL_ACCURACY)
+trainer.evaluate(dataset_api = dataset_api, retrain = True, metric = Metric.VAL_ACCURACY)
+# checkpoint = utils.get_last_checkpoint(config, search=False)
+# trainer.evaluate(dataset_api = dataset_api, resume_from=checkpoint, retrain = True, metric = Metric.VAL_ACCURACY)
 # trainer.evaluate(dataset_api=dataset_api,resume_from=checkpoint, metric=Metric.VAL_ACCURACY)
 # trainer.evaluate(dataset_api=dataset_api, metric=Metric.VAL_ACCURACY, search_model=best_nb301)

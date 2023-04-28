@@ -104,8 +104,6 @@ class Graph(torch.nn.Module, nx.DiGraph):
             >>> my_graph_42_classes = MyGraph()
 
         """
-        # import ipdb; ipdb.set_trace()
-        # self.num_classes = self.NUM_CLASSES if hasattr(self, 'NUM_CLASSES') else 100
         # super().__init__()
         nx.DiGraph.__init__(self)
         torch.nn.Module.__init__(self)
