@@ -87,6 +87,20 @@ You can also test any one API.
 ```
 python test_benchmark_apis.py --search_space <search_space> --show_error
 ```
+# Augmix for out of distribution(OOD) robustness.
+https://arxiv.org/abs/1912.02781
+
+Augmix in search phase and evaluation phase is integrated in the code along with jsd loss function(As implemented in AUGMIX paper : ). For applying AUGMIX use:
+```python
+--config.augment = True
+--config.search.augmix = True #for application in search phase only
+--config.evaluation.augmix = True #for application in eval phase only
+```
+
+# NATS bench api
+
+NATS bench api is integrated for obtaining benchmark architecture accuracies. But for its usage NATS bench files needs to be downladed as per : https://github.com/D-X-Y/NATS-Bench (these are very large files)
+
 # Usage
 
 To get started, check out [`demo.py`](examples/demo.py).
@@ -153,4 +167,20 @@ and our paper: <a href="https://arxiv.org/abs/2104.01177">How Powerful are Perfo
   volume={34},
   year={2021}
 }
+```
+
+
+## Git ref
+```
+git status
+git add .
+git commit -m 'your message here'
+git push origin develop
+```
+## downlaod files from drive
+```
+create download link in gdrive by 'get link'
+get link id
+gdown --id <id >
+
 ```

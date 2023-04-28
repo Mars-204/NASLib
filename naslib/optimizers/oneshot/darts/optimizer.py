@@ -7,6 +7,7 @@ from naslib.search_spaces.core.primitives import MixedOp
 from naslib.optimizers.core.metaclasses import MetaOptimizer
 from naslib.utils.utils import count_parameters_in_MB
 from naslib.search_spaces.core.query_metrics import Metric
+import torch.nn.functional as F
 
 import naslib.search_spaces.core.primitives as ops
 
@@ -56,17 +57,20 @@ class DARTSOptimizer(MetaOptimizer):
 
         self.config = config
         self.op_optimizer = op_optimizer
+        self.op_optimizer_evaluate = op_optimizer
         self.arch_optimizer = arch_optimizer
         self.loss = loss_criteria
         self.grad_clip = self.config.search.grad_clip
-
+        # import ipdb; ipdb.set_trace()
         self.architectural_weights = torch.nn.ParameterList()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+        
         self.perturb_alphas = None
         self.epsilon = 0
 
         self.dataset = config.dataset
+
+        self.augmix_search = config.search.augmix   # JSD loss configured
 
     def adapt_search_space(self, search_space, scope=None, **kwargs):
         # We are going to modify the search space
@@ -157,7 +161,9 @@ class DARTSOptimizer(MetaOptimizer):
             # Update architecture weights
             self.arch_optimizer.zero_grad()
             logits_val = self.graph(input_val)
-            val_loss = self.loss(logits_val, target_val)
+            if self.augmix_search:
+                logits_val, _, _ = torch.split(logits_val, len(logits_val) // 3)
+            val_loss = self.loss(logits_val, target_val) 
             val_loss.backward()
 
             self.arch_optimizer.step()
@@ -165,7 +171,12 @@ class DARTSOptimizer(MetaOptimizer):
             # Update op weights
             self.op_optimizer.zero_grad()
             logits_train = self.graph(input_train)
-            train_loss = self.loss(logits_train, target_train)
+            if self.augmix_search:
+                logits_train, augmix_loss = self.jsd_loss(logits_train)
+                train_loss = self.loss(logits_train, target_train) + augmix_loss
+            else:
+                train_loss = self.loss(logits_train, target_train)
+            
             train_loss.backward()
             if self.grad_clip:
                 torch.nn.utils.clip_grad_norm_(self.graph.parameters(), self.grad_clip)
@@ -173,12 +184,26 @@ class DARTSOptimizer(MetaOptimizer):
 
         return logits_train, logits_val, train_loss, val_loss
 
+    def jsd_loss(self, logits_train):
+        logits_train, logits_aug1, logits_aug2 = torch.split(logits_train, len(logits_train) // 3)
+        p_clean, p_aug1, p_aug2 = F.softmax(logits_train, dim=1), F.softmax(logits_aug1, dim=1), F.softmax(logits_aug2, dim=1)
+
+        p_mixture = torch.clamp((p_clean + p_aug1 + p_aug2) / 3., 1e-7, 1).log()
+        augmix_loss = self.config.jsd_factor * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
+                F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
+                F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3.
+        return logits_train, augmix_loss
+
     def get_final_architecture(self):
         logger.info(
             "Arch weights before discretization: {}".format(
                 [a for a in self.architectural_weights]
             )
         )
+        # import ipdb; ipdb.set_trace()
+        # if self.config.search_space =='nasbench301':
+        # import copy
+        # graph = copy.copy(self.graph).unparse()
         graph = self.graph.clone().unparse()
         graph.prepare_discretization()
 
@@ -351,6 +376,21 @@ class DARTSOptimizer(MetaOptimizer):
     def _loss(self, model, criterion, input, target):
         pred = model(input)
         return criterion(pred, target)
+    
+    def get_checkpointables(self):
+        """
+        Return all objects that should be saved in a checkpoint during training.
+        Will be called after `before_training` and must include key "model".
+        Returns:
+            (dict): with name as key and object as value. e.g. graph, arch weights, optimizers, ...
+        """
+        return {
+            "graph": self.graph,
+            "op_optimizer": self.op_optimizer,
+            "op_optimizer_evaluate": self.op_optimizer_evaluate,
+            "arch_optimizer": self.arch_optimizer,
+            "arch_weights": self.architectural_weights,            
+        }
 
 
 class DARTSMixedOp(MixedOp):

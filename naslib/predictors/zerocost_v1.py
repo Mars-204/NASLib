@@ -16,7 +16,7 @@ import gc
 
 from naslib.predictors.predictor import Predictor
 from naslib.predictors.utils.build_nets import get_cell_based_tiny_net
-from naslib.utils.utils import get_project_root, get_train_val_loaders
+from naslib.utils.utils import get_project_root, get_train_val_loaders_search,get_train_val_loaders_eval
 from naslib.predictors.utils.build_nets.build_darts_net import NetworkCIFAR
 from naslib.search_spaces.darts.conversions import convert_compact_to_genotype
 
@@ -59,7 +59,11 @@ class ZeroCostV1(Predictor):
             self.num_classes = num_classes_dic[self.config.dataset]
 
     def pre_process(self):
-        self.train_loader, _, _, _, _ = get_train_val_loaders(self.config, mode="train")
+        if self.config.eval:
+            self.train_loader, _, _, _, _ = get_train_val_loaders_eval(self.config, mode="train")
+        else:
+            self.train_loader, _, _, _, _ = get_train_val_loaders_search(self.config, mode="train")
+        
 
     def query(self, xtest, info=None):
 

@@ -1,0 +1,136 @@
+dataset: cifar10
+data: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/data
+seed: 0
+search_space: nasbench301
+out_dir: /work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/optimizers/oneshot/darts
+optimizer: darts
+jsd_factor : 1
+
+search:
+  # DARTS
+  batch_size: 64
+  arc_learning_rate: 0.0003
+  arch_weight_decay: 0.001
+  checkpoint_freq: 5
+  learning_rate_min: 0
+  learning_rate: 0.025
+  momentum: 0.9
+  weight_decay: 0.0003
+  epochs: 1
+  warm_start_epochs: 0
+  grad_clip: 5
+  train_portion: 0.5
+  data_size: 25000
+  augmix: False
+  test_corr: True
+ 
+  # DrNAS
+  # batch_size: 64
+  # learning_rate: 0.025
+  # checkpoint_freq: 5
+  # learning_rate_min: 0.001
+  # momentum: 0.9
+  # weight_decay: 0.0003
+  # epochs: 100
+  # warm_start_epochs: 0
+  # grad_clip: 5
+  # train_portion: 0.5
+  # data_size: 25000
+  # augmix: True
+  # test_corr: True
+
+  # MOVEMENT
+  # instantenous: True
+  # epochs: 9
+  # warm_start_epochs: 5
+  # masking_interval: 1
+  # train_portion: 0.1
+  # data_size: 5000
+  # batch_size: 128
+  
+  # BANANAS
+  k: 10
+  num_ensemble: 3
+  acq_fn_type: its
+  acq_fn_optimization: mutation
+  encoding_type: path
+  num_arches_to_mutate: 2
+  max_mutations: 1
+  num_candidates: 100
+  
+  # BasePredictor
+  predictor_type: var_sparse_gp
+  debug_predictor: False
+
+  # GDAS
+  tau_max: 10
+  tau_min: 0.1
+
+  # RE
+  sample_size: 10
+  population_size: 100
+  
+  #LS
+  num_init: 10
+
+  #Cutout
+  cutout: False
+  cutout_length: 16
+  cutout_prob: 1.0
+  drop_path_prob: 0.2
+  auxiliary_weight: 0.4
+
+  #Extras
+  unrolled: False
+  arch_learning_rate: 0.0003
+  arch_weight_decay: 0.001
+  output_weights: True
+  fidelity: 200
+  
+
+  #GMovement
+  # checkpoint_freq: 30
+  # grad_clip: 0
+  # threshold: 0.000001
+  # weight_decay: 0.001
+  # learning_rate: 0.01
+  # momentum: 0.8
+  # normalization: div
+  # normalization_exponent: 0.5
+  
+  # learning_rate_min: 0.0001
+  
+
+
+
+evaluation:
+  # dataset: cifar100
+  # dataset: ImageNet16-120
+  dataset: cifar10
+  checkpoint_freq: 30
+  batch_size: 64
+  learning_rate: 0.025
+  learning_rate_min: 0.00
+  momentum: 0.9
+  weight_decay: 0.0003
+  epochs: 2
+  warm_start_epochs: 0
+  grad_clip: 5
+  train_portion: 1.
+  data_size: 50000
+
+  cutout: False
+  cutout_length: 16
+  cutout_prob: 1.0
+  drop_path_prob: 0.3
+  auxiliary_weight: 0.4
+  augmix: False
+  test_corr: True
+  query: True
+  gpu: 2
+  distributed: True
+  multiprocessing_distributed: True
+  dist_backend: 'nccl'
+  dist_url: tcp://127.0.0.1:6789
+  world_size: 1
+  rank: 0

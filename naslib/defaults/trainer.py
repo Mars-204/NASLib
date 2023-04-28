@@ -1,4 +1,6 @@
 import codecs
+from curses import flash
+
 from naslib.search_spaces.core.graph import Graph
 import time
 import json
@@ -7,8 +9,14 @@ import os
 import copy
 import torch
 import numpy as np
-
+import torch.nn.functional as F
+import torchvision.models as models
+import xautodl
+import pickle
+import bz2
+import _pickle as cPickle
 from fvcore.common.checkpoint import PeriodicCheckpointer
+from naslib.search_spaces.nasbench201.conversions import convert_naslib_to_str
 
 from naslib.search_spaces.core.query_metrics import Metric
 
@@ -44,6 +52,15 @@ class Trainer(object):
         self.config = config
         self.epochs = self.config.search.epochs
         self.lightweight_output = lightweight_output
+        self.augmix_eval = config.evaluation.augmix
+        self.augmix_search = config.search.augmix
+        self.dataset = config.dataset
+        self.jsd_factor = config.jsd_factor
+        try: 
+            self.eval_dataset = config.evaluation.dataset
+        except Exception as e:
+            self.eval_dataset = self.dataset
+
 
         # preparations
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -70,6 +87,7 @@ class Trainer(object):
                 "train_time": [],
                 "arch_eval": [],
                 "params": n_parameters,
+                "mCE":[],
             }
         )
 
@@ -84,10 +102,10 @@ class Trainer(object):
                 train from scratch.
         """
         logger.info("Start training")
+        logger.info('Search with augmix:',self.augmix_search)
 
         np.random.seed(self.config.search.seed)
         torch.manual_seed(self.config.search.seed)
-
         self.optimizer.before_training()
         checkpoint_freq = self.config.search.checkpoint_freq
         if self.optimizer.using_step_function:
@@ -96,10 +114,10 @@ class Trainer(object):
             )
 
             start_epoch = self._setup_checkpointers(
-                resume_from, period=checkpoint_freq, scheduler=self.scheduler
+                resume_from, search= True, period=checkpoint_freq, scheduler=self.scheduler
             )
         else:
-            start_epoch = self._setup_checkpointers(resume_from, period=checkpoint_freq)
+            start_epoch = self._setup_checkpointers(resume_from, search = True, period=checkpoint_freq)
 
         if self.optimizer.using_step_function:
             self.train_queue, self.valid_queue, _ = self.build_search_dataloaders(
@@ -113,18 +131,22 @@ class Trainer(object):
 
             if self.optimizer.using_step_function:
                 for step, data_train in enumerate(self.train_queue):
+                    if self.augmix_search:
+                        data_train[0] = torch.cat(data_train[0],0).cuda()
                     data_train = (
                         data_train[0].to(self.device),
                         data_train[1].to(self.device, non_blocking=True),
                     )
                     data_val = next(iter(self.valid_queue))
+                    if self.augmix_search:
+                        data_val[0] = torch.cat(data_val[0],0).cuda()
                     data_val = (
                         data_val[0].to(self.device),
                         data_val[1].to(self.device, non_blocking=True),
                     )
 
                     stats = self.optimizer.step(data_train, data_val)
-                    logits_train, logits_val, train_loss, val_loss = stats
+                    logits_train, logits_val, train_loss, val_loss = stats  # JSD loss implemented in optimizer.py. Train loss contains JSD loss
 
                     self._store_accuracies(logits_train, data_train[1], "train")
                     self._store_accuracies(logits_val, data_val[1], "val")
@@ -200,6 +222,18 @@ class Trainer(object):
 
         self.optimizer.after_training()
 
+        # """
+        # Adding testing corruption performance        
+        # """
+        # test_corruption = False
+        # test_corruption = self.config.search.test_corr
+
+        # if test_corruption:
+        #     mean_CE = utils.test_corr(self.optimizer.graph, self.dataset, self.config)
+        #     self.errors_dict.mCE.append(mean_CE)
+        # else:
+        #     self.errors_dict.mCE.append(-1)
+
         if summary_writer is not None:
             summary_writer.close()
 
@@ -229,11 +263,18 @@ class Trainer(object):
         with torch.no_grad():
             start_time = time.time()
             for step, data_val in enumerate(dataloader):
+                if self.augmix_eval:
+                            data_val[0] = torch.cat(data_val[0],0).cuda()
                 input_val = data_val[0].to(self.device)
                 target_val = data_val[1].to(self.device, non_blocking=True)
 
                 logits_val = self.optimizer.graph(input_val)
-                val_loss = loss(logits_val, target_val)
+                if self.augmix_eval:
+                            logits_val, augmix_loss = self.jsd_loss(logits_val)
+                            val_loss = loss(logits_val, target_val)
+                            val_loss =  val_loss + augmix_loss
+                else:
+                    val_loss = loss(logits_val, target_val)
 
                 self._store_accuracies(logits_val, data_val[1], "val")
                 self.val_loss.update(float(val_loss.detach().cpu()))
@@ -257,6 +298,7 @@ class Trainer(object):
         best_arch:Graph=None,
         dataset_api:object=None,
         metric:Metric=None,
+        api: object=None
     ):
         """
         Evaluate the final architecture as given from the optimizer.
@@ -265,7 +307,7 @@ class Trainer(object):
         Otherwise train as defined in the config.
 
         Args:
-            retrain (bool)      : Reset the weights from the architecure search
+            retrain (bool)      : Reset the weigh ts from the architecure search
             search_model (str)  : Path to checkpoint file that was created during search. If not provided,
                                   then try to load 'model_final.pth' from search
             resume_from (str)   : Resume retraining from the given checkpoint file.
@@ -275,36 +317,124 @@ class Trainer(object):
             metric              : Metric to query the benchmark for.
         """
         logger.info("Start evaluation")
-        if not best_arch:
 
+        #Adding augmix and test corruption error to evalualte
+        query = self.config.evaluation.query
+        test_corr = False
+        test_corr = self.config.evaluation.test_corr
+        
+        if not best_arch:
             if not search_model:
                 search_model = os.path.join(
                     self.config.save, "search", "model_final.pth"
                 )
+            
+            self.optimizer.before_training()
             self._setup_checkpointers(search_model)  # required to load the architecture
-
             best_arch = self.optimizer.get_final_architecture()
-        logger.info("Final architecture:\n" + best_arch.modules_str())
-
-        if best_arch.QUERYABLE:
+     
+        ## obtaining test accuracies from NASBench201API
+      
+        if best_arch.QUERYABLE and self.config.search_space=='nasbench201'and query :
             if metric is None:
                 metric = Metric.TEST_ACCURACY
             result = best_arch.query(
                 metric=metric, dataset=self.config.dataset, dataset_api=dataset_api
             )
             logger.info("Queried results ({}): {}".format(metric, result))
+
+            #from nas_201_api import NASBench201API as API #pip install nas-bench-201
+            #api = API("/work/dlclarge2/agnihotr-ml/nas301_test_acc/NASLib/naslib/data/NAS-Bench-201-v1_1-096897.pth") #path to the API please refer to https://github.com/D-X-Y/NAS-Bench-201 for downloading
+            #api = API("/work/dlclarge2/agnihotr-ml/NASLib/naslib/data/NAS-Bench-201-v1_0-e61699.pth")
+
+            #### Obtaining accuracies from NAS_201_API
+            # if api==None:
+            #     from nas_201_api import NASBench201API as API #pip install nas-bench-201
+            #     api = API("/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/NAS-Bench-201-v1_1-096897.pth") #path to the API please refer to https://github.com/D-X-Y/NAS-Bench-201 for downloading
+            
+            # index = api.query_index_by_arch(convert_naslib_to_str(best_arch))
+            # cifar10_acc = api.get_more_info(index, 'cifar10', hp='200', is_random=False)['test-accuracy']
+            # cifar100_acc = api.get_more_info(index, 'cifar100', hp='200', is_random=False)['test-accuracy']
+            # img_acc = api.get_more_info(index, 'ImageNet16-120', hp='200', is_random=False)['test-accuracy']
+            # logger.info("TEST ACCURACIES: \n\t{}: {}\n\t{}: {}\n\t{}: {}".format('cifar10', cifar10_acc, 'cifar100', cifar100_acc, 'ImageNet16-120', img_acc))
+
+            #### Loading weights of pretrained network
+            from xautodl.models import get_cell_based_tiny_net
+            from nats_bench import create
+            from nats_bench.api_utils import pickle_load
+            # file = bz2.BZ2File('/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/Copy of NATS-tss-v1_0-3ffb9.pickle.pbz2')
+
+            # d = cPickle.load(file)
+            # file.close()
+            
+            # d = pickle_load('/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/Copy of NATS-tss-v1_0-3ffb9.pickle.pbz2')
+            # api = create(d, 'tss', fast_mode=False, verbose=True)
+            api = create('/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/NATS-bench/NATS-tss-v1_0-3ffb9-full/NATS-tss-v1_0-3ffb9-full', 'tss', fast_mode=True, verbose=True)
+            index = api.query_index_by_arch(convert_naslib_to_str(best_arch))
+            cifar10_acc = api.get_more_info(index, 'cifar10', hp='200', is_random=False)['test-accuracy']
+            cifar100_acc = api.get_more_info(index, 'cifar100', hp='200', is_random=False)['test-accuracy']
+            img_acc = api.get_more_info(index, 'ImageNet16-120', hp='200', is_random=False)['test-accuracy']
+            logger.info("TEST ACCURACIES: \n\t{}: {}\n\t{}: {}\n\t{}: {}".format('cifar10', cifar10_acc, 'cifar100', cifar100_acc, 'ImageNet16-120', img_acc))
+
+            config = api.get_net_config(index, 'cifar10')
+            best_arch_c10 = get_cell_based_tiny_net(config)
+            params = api.get_net_param(index, 'cifar10', None , hp = '200')
+            best_arch_c10.load_state_dict(next(iter(params.values())))
+
+            config = api.get_net_config(index, 'cifar100')
+            best_arch_c100 = get_cell_based_tiny_net(config)
+            params = api.get_net_param(index, 'cifar100', None , hp = '200')
+            best_arch_c100.load_state_dict(next(iter(params.values())))
+
+            config = api.get_net_config(index, 'ImageNet16-120')
+            best_arch_I16 = get_cell_based_tiny_net(config)
+            params = api.get_net_param(index, 'ImageNet16-120', None , hp = '200')
+            best_arch_I16.load_state_dict(next(iter(params.values())))
+
+            self.best_c10_acc = cifar10_acc
+            self.best_c100_acc = cifar100_acc
+            self.best_img_acc = img_acc
+            self.model_path = search_model
+            # self.architecture = best_arch.modules_str()
+
+            ### Calculating the corruption accuracies
+        
+            if test_corr:
+                mean_CE = utils.test_corr_NATS(best_arch_c10, best_arch_c100, best_arch_I16, self.dataset, self.config)
+                logger.info(
+                "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
+                    mean_CE
+                )
+            ) 
+        best_arch = self.optimizer.get_final_architecture()
+        print(best_arch)
+        if best_arch.QUERYABLE and not retrain:
+            if metric is None:
+                metric = Metric.TEST_ACCURACY
+            result = best_arch.query(
+                metric=metric, dataset=self.config.dataset, dataset_api=dataset_api
+            )
+            logger.info("Queried results ({}): {}".format(metric, result))
+
         else:
+            if metric is None:
+                metric = Metric.TEST_ACCURACY
+            result = best_arch.query(
+                metric=metric, dataset=self.config.dataset, dataset_api=dataset_api
+            )
+            logger.info("Queried results ({}): {}".format(metric, result))
+
             best_arch.to(self.device)
             if retrain:
                 logger.info("Starting retraining from scratch")
-                best_arch.reset_weights(inplace=True)
-
+                logger.info("Evaluation with augmix:",self.augmix_eval)
+                if not resume_from:
+                    best_arch.reset_weights(inplace=True)
                 (
                     self.train_queue,
                     self.valid_queue,
                     self.test_queue,
                 ) = self.build_eval_dataloaders(self.config)
-
                 optim = self.build_eval_optimizer(best_arch.parameters(), self.config)
                 scheduler = self.build_eval_scheduler(optim, self.config)
 
@@ -319,7 +449,7 @@ class Trainer(object):
 
                 grad_clip = self.config.evaluation.grad_clip
                 loss = torch.nn.CrossEntropyLoss()
-
+                
                 self.train_top1.reset()
                 self.train_top5.reset()
                 self.val_top1.reset()
@@ -333,7 +463,6 @@ class Trainer(object):
                     scope=best_arch.OPTIMIZER_SCOPE,
                     private_edge_data=True,
                 )
-
                 # train from scratch
                 epochs = self.config.evaluation.epochs
                 for e in range(start_epoch, epochs):
@@ -358,12 +487,24 @@ class Trainer(object):
 
                     # Train queue
                     for i, (input_train, target_train) in enumerate(self.train_queue):
+                        if self.augmix_eval:
+                            input_train = torch.cat(input_train,0).cuda()
+                        
                         input_train = input_train.to(self.device)
                         target_train = target_train.to(self.device, non_blocking=True)
 
                         optim.zero_grad()
                         logits_train = best_arch(input_train)
-                        train_loss = loss(logits_train, target_train)
+                        if self.augmix_eval:
+                            logits_train, augmix_loss = self.jsd_loss(logits_train)
+                            train_loss = loss(logits_train, target_train)
+                            train_loss =  train_loss + augmix_loss
+                        # elif self.augment and not self.augmix_eval:
+                        #     logits_train, _, _ = torch.split(logits_train, len(logits_train) // 3)
+                        #     train_loss = loss(logits_train, target_train)
+                        else:
+                            train_loss = loss(logits_train, target_train)
+
                         if hasattr(
                             best_arch, "auxilary_logits"
                         ):  # darts specific stuff
@@ -374,6 +515,7 @@ class Trainer(object):
                             train_loss += (
                                 self.config.evaluation.auxiliary_weight * auxiliary_loss
                             )
+                        
                         train_loss.backward()
                         if grad_clip:
                             torch.nn.utils.clip_grad_norm_(
@@ -393,16 +535,17 @@ class Trainer(object):
                     # Validation queue
                     if self.valid_queue:
                         best_arch.eval()
-                        for i, (input_valid, target_valid) in enumerate(
-                            self.valid_queue
-                        ):
-
+                        for i, (input_valid, target_valid) in enumerate(self.valid_queue):
+                            if self.augmix_eval:
+                                input_valid = torch.cat(input_train,0).cuda()
                             input_valid = input_valid.to(self.device).float()
                             target_valid = target_valid.to(self.device).float()
 
                             # just log the validation accuracy
                             with torch.no_grad():
                                 logits_valid = best_arch(input_valid)
+                                if self.augmix_eval:
+                                    logits_valid,_ ,_ = torch.split(logits_train, len(logits_valid) // 3)
                                 self._store_accuracies(
                                     logits_valid, target_valid, "val"
                                 )
@@ -451,17 +594,34 @@ class Trainer(object):
                     top1.avg, top5.avg
                 )
             )
+            if test_corr:
+                mean_CE = utils.test_corr(best_arch, self.dataset, self.config)
+                logger.info(
+                "Corruption Evaluation finished. Mean Corruption Error: {:.9}".format(
+                    mean_CE
+                )
+            )
+
+    def jsd_loss(self, logits_train):
+        logits_train, logits_aug1, logits_aug2 = torch.split(logits_train, len(logits_train) // 3)
+        p_clean, p_aug1, p_aug2 = F.softmax(logits_train, dim=1), F.softmax(logits_aug1, dim=1), F.softmax(logits_aug2, dim=1)
+
+        p_mixture = torch.clamp((p_clean + p_aug1 + p_aug2) / 3., 1e-7, 1).log()
+        augmix_loss = self.jsd_factor * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
+                F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
+                F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3.
+        return logits_train, augmix_loss
 
     @staticmethod
     def build_search_dataloaders(config):
-        train_queue, valid_queue, test_queue, _, _ = utils.get_train_val_loaders(
+        train_queue, valid_queue, test_queue, _, _ = utils.get_train_val_loaders_search(
             config, mode="train"
         )
         return train_queue, valid_queue, _  # test_queue is not used in search currently
 
     @staticmethod
     def build_eval_dataloaders(config):
-        train_queue, valid_queue, test_queue, _, _ = utils.get_train_val_loaders(
+        train_queue, valid_queue, test_queue, _, _ = utils.get_train_val_loaders_eval(
             config, mode="val"
         )
         return train_queue, valid_queue, test_queue
@@ -474,12 +634,12 @@ class Trainer(object):
             momentum=config.evaluation.momentum,
             weight_decay=config.evaluation.weight_decay,
         )
-
+    
     @staticmethod
     def build_search_scheduler(optimizer, config):
         return torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
-            T_max=config.search.epochs,
+            T_max=config.search.epochs*(config.search.data_size/config.search.batch_size),
             eta_min=config.search.learning_rate_min,
         )
 
@@ -487,7 +647,7 @@ class Trainer(object):
     def build_eval_scheduler(optimizer, config):
         return torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
-            T_max=config.evaluation.epochs,
+            T_max=config.evaluation.epochs*(config.evaluation.data_size/config.evaluation.batch_size),
             eta_min=config.evaluation.learning_rate_min,
         )
 
@@ -565,9 +725,13 @@ class Trainer(object):
         """
         checkpointables = self.optimizer.get_checkpointables()
         checkpointables.update(add_checkpointables)
+        if search:
+            save_dir = self.config.save + "/search"
+        else:
+            save_dir = self.config.save + "/eval"
 
         checkpointer = utils.Checkpointer(
-            model=checkpointables.pop("model"),
+            model=checkpointables.pop("graph"),
             save_dir=self.config.save + "/search"
             if search
             else self.config.save + "/eval",
@@ -581,7 +745,7 @@ class Trainer(object):
             if search
             else self.config.evaluation.epochs,
         )
-
+    
         if resume_from:
             logger.info("loading model from file {}".format(resume_from))
             checkpoint = checkpointer.resume_or_load(resume_from, resume=True)

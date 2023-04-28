@@ -6,7 +6,10 @@ import argparse
 import torchvision.datasets as dset
 from torch.utils.data import Dataset
 from sklearn import metrics
+import cv2
 from scipy import stats
+import augmentations
+import _pickle as pickle
 
 from collections import OrderedDict
 
@@ -27,7 +30,8 @@ from .taskonomy_dataset import get_datasets
 from . import load_ops
 
 from pytorch_msssim import ssim, ms_ssim, SSIM, MS_SSIM
-
+from naslib.utils.DownsampledImageNet import ImageNet16
+from utils.imagenet_c import corruption_tuple
 
 cat_channels = partial(torch.cat, dim=1)
 
@@ -284,19 +288,29 @@ def get_config_from_args(args=None, config_type="nas"):
     return config
 
 
-def get_train_val_loaders(config, mode):
+def get_train_val_loaders_search(config, mode):
     """
     Constructs the dataloaders and transforms for training, validation and test data.
     """
     data = config.data
     dataset = config.dataset
-    seed = config.search.seed
+    # dataset = config.evaluation.dataset
+    augmix_search = config.search.augmix
+    augmix_eval = config.evaluation.augmix
+    
+    
+    seed = config.seed
     config = config.search if mode == "train" else config.evaluation
     if dataset == "cifar10":
-        train_transform, valid_transform = _data_transforms_cifar10(config)
+        if augmix_search:
+            train_transform, valid_transform = _data_transforms_cifar10_augmix(config)
+        else:
+            train_transform, valid_transform = _data_transforms_cifar10(config)
         train_data = dset.CIFAR10(
             root=data, train=True, download=True, transform=train_transform
         )
+        if augmix_search:
+            train_data = AugMixDataset(train_data)
         test_data = dset.CIFAR10(
             root=data, train=False, download=True, transform=valid_transform
         )
@@ -305,6 +319,8 @@ def get_train_val_loaders(config, mode):
         train_data = dset.CIFAR100(
             root=data, train=True, download=True, transform=train_transform
         )
+        if augmix_search:
+            train_data = AugMixDataset(train_data)
         test_data = dset.CIFAR100(
             root=data, train=False, download=True, transform=valid_transform
         )
@@ -313,6 +329,140 @@ def get_train_val_loaders(config, mode):
         train_data = dset.SVHN(
             root=data, split="train", download=True, transform=train_transform
         )
+        if augmix_search:
+            train_data = AugMixDataset(train_data) 
+        test_data = dset.SVHN(
+            root=data, split="test", download=True, transform=valid_transform
+        )
+    elif dataset == "ImageNet16-120":
+        from naslib.utils.DownsampledImageNet import ImageNet16
+        test_dataset = config.test_dataset
+        train_transform, valid_transform = _data_transforms_ImageNet_16_120(config)
+        data_folder = f"{data}/{test_dataset}"
+        train_data = ImageNet16(
+            root=data_folder,
+            train=True,
+            transform=train_transform,
+            use_num_of_class_only=120,
+        )
+        augmentations.IMAGE_SIZE = 16
+        if augmix_search:
+            train_data = AugMixDataset(train_data)
+        test_data = ImageNet16(
+            root=data_folder,
+            train=False,
+            transform=valid_transform,
+            use_num_of_class_only=120,
+        )
+        
+    elif dataset == 'jigsaw':
+        cfg = get_jigsaw_configs()
+
+        train_data, val_data, test_data = get_datasets(cfg)
+
+        train_transform = cfg['train_transform_fn']
+        valid_transform = cfg['val_transform_fn']
+        
+    elif dataset == 'class_object':
+        cfg = get_class_object_configs()
+
+        train_data, val_data, test_data = get_datasets(cfg)
+
+        train_transform = cfg['train_transform_fn']
+        valid_transform = cfg['val_transform_fn']
+        
+    elif dataset == 'class_scene':
+        cfg = get_class_scene_configs()
+
+        train_data, val_data, test_data = get_datasets(cfg)
+
+        train_transform = cfg['train_transform_fn']
+        valid_transform = cfg['val_transform_fn']
+        
+    elif dataset == 'autoencoder':
+        cfg = get_autoencoder_configs()
+    
+        train_data, val_data, test_data = get_datasets(cfg)
+        
+        train_transform = cfg['train_transform_fn']
+        valid_transform = cfg['val_transform_fn']
+    else:
+        raise ValueError("Unknown dataset: {}".format(dataset))
+
+    num_train = len(train_data)
+    indices = list(range(num_train))
+    split = int(np.floor(config.train_portion * num_train))
+
+    train_queue = torch.utils.data.DataLoader(
+        train_data,
+        batch_size=config.batch_size,
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:split]),
+        pin_memory=True,
+        num_workers=0,
+        worker_init_fn=np.random.seed(seed+1),
+    )
+
+    valid_queue = torch.utils.data.DataLoader(
+        train_data,
+        batch_size=config.batch_size,
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
+        pin_memory=True,
+        num_workers=0,
+        worker_init_fn=np.random.seed(seed),
+    )
+
+    test_queue = torch.utils.data.DataLoader(
+        test_data,
+        batch_size=config.batch_size,
+        shuffle=False,
+        pin_memory=True,
+        num_workers=0,
+        worker_init_fn=np.random.seed(seed),
+    )
+
+    return train_queue, valid_queue, test_queue, train_transform, valid_transform
+
+def get_train_val_loaders_eval(config, mode):
+    """
+    Constructs the dataloaders and transforms for training, validation and test data.
+    """
+    data = config.data
+    dataset = config.dataset
+    # dataset = config.evaluation.dataset
+    augmix_eval = config.evaluation.augmix
+    
+    seed = config.seed
+    config = config.search if mode == "train" else config.evaluation
+    if dataset == "cifar10":
+        if augmix_eval:
+            train_transform, valid_transform = _data_transforms_cifar10_augmix(config)
+        else:
+            train_transform, valid_transform = _data_transforms_cifar10(config)
+        train_data = dset.CIFAR10(
+            root=data, train=True, download=True, transform=train_transform
+        )
+        if augmix_eval:
+            train_data = AugMixDataset(train_data)
+        test_data = dset.CIFAR10(
+            root=data, train=False, download=True, transform=valid_transform
+        )
+    elif dataset == "cifar100":
+        train_transform, valid_transform = _data_transforms_cifar100(config)
+        train_data = dset.CIFAR100(
+            root=data, train=True, download=True, transform=train_transform
+        )
+        if augmix_eval:
+            train_data = AugMixDataset(train_data)
+        test_data = dset.CIFAR100(
+            root=data, train=False, download=True, transform=valid_transform
+        )
+    elif dataset == "svhn":
+        train_transform, valid_transform = _data_transforms_svhn(config)
+        train_data = dset.SVHN(
+            root=data, split="train", download=True, transform=train_transform
+        )
+        if augmix_eval:
+            train_data = AugMixDataset(train_data) 
         test_data = dset.SVHN(
             root=data, split="test", download=True, transform=valid_transform
         )
@@ -327,6 +477,9 @@ def get_train_val_loaders(config, mode):
             transform=train_transform,
             use_num_of_class_only=120,
         )
+        augmentations.IMAGE_SIZE = 16
+        if augmix_eval:
+            train_data = AugMixDataset(train_data)
         test_data = ImageNet16(
             root=data_folder,
             train=False,
@@ -400,10 +553,34 @@ def get_train_val_loaders(config, mode):
 
     return train_queue, valid_queue, test_queue, train_transform, valid_transform
 
-
 def _data_transforms_cifar10(args):
     CIFAR_MEAN = [0.49139968, 0.48215827, 0.44653124]
     CIFAR_STD = [0.24703233, 0.24348505, 0.26158768]
+
+
+    train_transform = transforms.Compose(
+        [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+        ]
+    )
+    if args.cutout:
+        train_transform.transforms.append(Cutout(args.cutout_length, args.cutout_prob))
+
+    valid_transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+        ]
+    )
+    return train_transform, valid_transform
+
+def _data_transforms_cifar10_augmix(args):
+
+    CIFAR_MEAN = [0.5, 0.5, 0.5]
+    CIFAR_STD = [0.5, 0.5, 0.5]
 
     train_transform = transforms.Compose(
         [
@@ -491,7 +668,7 @@ def _data_transforms_ImageNet_16_120(args):
     valid_transform = transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Normalize(IMAGENET16_MEAN, IMAGENET16_STD),
+            transforms.Normalize(IMAGENET16_MEAN, IMAGENET16_STD),           
         ]
     )
     return train_transform, valid_transform
@@ -1054,7 +1231,7 @@ class Checkpointer(fvCheckpointer):
         if not os.path.isfile(path):
             path = PathManager.get_local_path(path)
             assert os.path.isfile(path), "Checkpoint {} not found!".format(path)
-
+        
         checkpoint = self._load_file(path)
         incompatible = self._load_model(checkpoint)
         if (
@@ -1073,3 +1250,426 @@ class Checkpointer(fvCheckpointer):
 
         # return any further checkpoint data
         return checkpoint
+
+
+"""
+Implementation of AUGMIX and test corruption as implemented in AUGMIX paper
+
+"""
+
+
+CORRUPTIONS = [
+    'gaussian_noise', 'shot_noise', 'impulse_noise', 'defocus_blur',
+    'glass_blur', 'motion_blur', 'zoom_blur', 'snow', 'frost', 'fog',
+    'brightness', 'contrast', 'elastic_transform', 'pixelate',
+    'jpeg_compression'
+]
+Imagenet_Corr = [
+    'gaussian_noise', 'shot_noise', 'impulse_noise', 'defocus_blur',
+    'glass_blur', 'motion_blur', 'zoom_blur', 'snow', 'frost', 'fog',
+    'brightness', 'contrast', 'elastic_transform', 'pixelate',
+    'jpeg_compression', 'speckle_noise', 'gaussian_blur', 'spatter', 'saturate'
+]
+
+def test(net, test_loader,config):
+    """Evaluate network on given dataset."""
+    net.eval()
+    net = net.cuda()
+    total_loss = 0.
+    total_correct = 0
+    with torch.no_grad():
+        for images, targets in test_loader:
+            images, targets = images.cuda(), targets.cuda() 
+            logits = net(images)
+            # loss = torch.nn.functional.cross_entropy(logits, targets)
+            pred = logits.data.max(1)[1]
+            # total_loss += float(loss.data)
+            total_correct += pred.eq(targets.data).sum().item()
+
+    # return total_loss / len(test_loader.dataset), total_correct / len(
+    #     test_loader.dataset)
+    return total_correct / len( test_loader.dataset)
+
+def test_NATS(net, test_loader,config):
+    """Evaluate network on given dataset."""
+    # import ipdb; ipdb.set_trace()
+    net.eval()
+    net = net.cuda()
+    total_loss = 0.
+    total_correct = 0
+    with torch.no_grad():
+        for images, targets in test_loader:
+            images, targets = images.cuda(), targets.cuda()
+            _, logits = net(images)
+            # loss = torch.nn.functional.cross_entropy(logits, targets)
+            pred = logits.data.max(1)[1]
+            # total_loss += float(loss.data)
+            total_correct += pred.eq(targets.data).sum().item()
+
+    # return total_loss / len(test_loader.dataset), total_correct / len(
+    #     test_loader.dataset)
+    return total_correct / len( test_loader.dataset)
+
+def test_imagenet(net,test_data,eval):
+    # import ipdb; ipdb.set_trace()
+    net.eval()
+    net = net.cuda()
+    total_correct = 0
+    acc = []
+    for s in range(1,6):
+        test_loader = test_data[s]
+        with torch.no_grad():
+            for i in range(len(test_loader)):
+                images,targets = test_loader[i]
+                images = images.float()
+                images, targets = images.cuda(), targets.cuda()
+                if eval:
+                    logits = net(images)
+                else:
+                    _, logits = net(images)
+                pred = logits.data.max(1)[1]
+                total_correct += pred.eq(targets.data).sum().item()
+        acc.append(total_correct / len( test_loader))
+    return np.mean(acc)
+
+def test_corr_NATS(net_c10, net_c100, net_I16, dataset, config):
+    """Evaluate network on given corrupted dataset."""
+    corruption_accs_10 = []
+    base_path = "/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/data/cifar/"
+    bp = base_path
+    test_transform = transforms.Compose(
+        [transforms.ToTensor(),
+        transforms.Normalize([0.5] * 3, [0.5] * 3)])
+    test_data = dset.CIFAR10(
+            root=config.data, train=False, download=True, transform=test_transform
+        )
+    
+    if dataset=="cifar10":
+        base_path += "CIFAR-10-C/"        
+    elif dataset == "cifar100":
+        base_path += "CIFAR-100-C/"
+        test_data = dset.CIFAR100(
+            root=config.data, train=False, download=True, transform=test_transform
+        )
+    else:
+        raise NotImplementedError        
+
+    # CIFAR-10-C test
+               
+    print('corruption with cifar10-C')
+    for corruption in CORRUPTIONS:
+        # Reference to original data is mutated
+        test_data.data = np.load(base_path + corruption + '.npy')
+        test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
+
+        test_loader = torch.utils.data.DataLoader(
+            test_data,
+            batch_size=64,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=True)
+
+        test_acc = test_NATS(net_c10, test_loader,config)
+        corruption_accs_10.append(test_acc)
+        logger.info('{}\n\tTest Error {:.3f}'.format(
+            corruption, 100 - 100. * test_acc))
+    print('mCE_Cifar-10')
+    print(1 - np.mean(corruption_accs_10))
+
+    # CIFAR-100-C test
+    corruption_accs_100 = []
+    base_path = bp + "CIFAR-100-C/"
+    test_data = dset.CIFAR100(
+            root=config.data, train=False, download=True, transform=test_transform
+        )
+    print('corruption with cifar100-C')
+    for corruption in CORRUPTIONS:
+        # Reference to original data is mutated
+        test_data.data = np.load(base_path + corruption + '.npy')
+        test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
+
+        test_loader = torch.utils.data.DataLoader(
+            test_data,
+            batch_size=64,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=True)
+
+        test_acc = test_NATS(net_c100, test_loader,config)
+        corruption_accs_100.append(test_acc)
+        logger.info('{}\n\t Test Error {:.3f}'.format(
+            corruption, 100 - 100. * test_acc))
+    print('mCE_Cifar-100')
+    print(1 - np.mean(corruption_accs_100))
+
+    # ImageNet16-120 test
+    # import ipdb; ipdb.set_trace()
+    
+    # data = '/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/data'
+    # dataset = 'ImageNet16-120'
+    # train_transform, valid_transform = _data_transforms_ImageNet_16_120(config)
+    # data_folder = f"{data}/{dataset}"
+
+    # test_loader = ImageNet16(
+    #     root=data_folder,
+    #     train=False,
+    #     transform=valid_transform,
+    #     use_num_of_class_only=120,
+    # ) 
+    corruption_accs_16 = []
+    config = config.evaluation
+    corruption = corruption_tuple
+    z = 0
+    for c in corruption:
+        # print(c)
+        
+        ## to create ImageNet16-120 C dataset from ImageNet16-120
+        # test_data = imagenet_c(test_loader,c,z)
+        base = '/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/data/imagenet_c/'
+        path = base + Imagenet_Corr[z]
+        file = open(path,'rb')
+        test_loader = pickle.load(file)
+        test_acc = test_imagenet(net_I16, test_loader,eval=False)
+        corruption_accs_16.append(test_acc)
+        logger.info('{}\n\t Test Error {:.3f}'.format(
+            Imagenet_Corr[z], 100 - 100. * test_acc))
+        z = z + 1
+        
+    print('mCE_ImageNet-16_120_C')
+    print(1 - np.mean(corruption_accs_16))
+    
+    return (1 - np.mean(corruption_accs_16))
+
+def test_corr(net, dataset, config):
+    """Evaluate network on given corrupted dataset."""
+    corruption_accs_10 = []
+    base_path = "/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/data/cifar/"
+    bp = base_path
+    test_transform = transforms.Compose(
+        [transforms.ToTensor(),
+        transforms.Normalize([0.5] * 3, [0.5] * 3)])
+    test_data = dset.CIFAR10(
+            root=config.data, train=False, download=True, transform=test_transform
+        )
+    
+    if dataset=="cifar10":
+        base_path += "CIFAR-10-C/"        
+    elif dataset == "cifar100":
+        base_path += "CIFAR-100-C/"
+        test_data = dset.CIFAR100(
+            root=config.data, train=False, download=True, transform=test_transform
+        )
+    else:
+        raise NotImplementedError               
+    
+    ## CIFAR-10-C test
+
+    print('corruption with cifar10-C')
+    for corruption in CORRUPTIONS:
+        # Reference to original data is mutated
+        test_data.data = np.load(base_path + corruption + '.npy')
+        test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
+
+        test_loader = torch.utils.data.DataLoader(
+            test_data,
+            batch_size=64,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=True)
+
+        test_acc = test(net, test_loader,config)
+        corruption_accs_10.append(test_acc)
+        logger.info('{}\n\t Test Error {:.3f}'.format(
+            corruption, 100 - 100. * test_acc))
+   
+    print('mCE_Cifar-10C')
+    print(1 - np.mean(corruption_accs_10))
+    
+    # CIFAR-100-C test
+    corruption_accs_100 =[]
+    base_path = bp + "CIFAR-100-C/"
+    test_data = dset.CIFAR100(
+            root=config.data, train=False, download=True, transform=test_transform
+        )
+    print('corruption with cifar100-C')
+    for corruption in CORRUPTIONS:
+        # Reference to original data is mutated
+        test_data.data = np.load(base_path + corruption + '.npy')
+        test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
+
+        test_loader = torch.utils.data.DataLoader(
+            test_data,
+            batch_size=64,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=True)
+
+        test_acc = test(net, test_loader,config)
+        corruption_accs_100.append(test_acc)
+        logger.info('{}\n\tTest Error {:.3f}'.format(
+            corruption, 100 - 100. * test_acc))
+    print('mCE_Cifar-100C')
+    print(1 - np.mean(corruption_accs_100))
+
+    ## ImageNet-16-120C tests
+
+    # import ipdb; ipdb.set_trace()
+    
+    # data = '/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/data'
+    # dataset = 'ImageNet16-120'
+    # train_transform, valid_transform = _data_transforms_ImageNet_16_120(config)
+    # data_folder = f"{data}/{dataset}"
+
+    # test_loader = ImageNet16(
+    #     root=data_folder,
+    #     train=False,
+    #     transform=valid_transform,
+    #     use_num_of_class_only=120,
+    # ) 
+    corruption_accs_16 = []
+    config = config.evaluation
+    corruption = corruption_tuple
+    z = 0
+    eval = True
+    for c in corruption:
+        ### to create ImageNet16-120 C dataset from ImageNet16-120
+        # test_data = imagenet_c(test_loader,c,z)
+
+        base = '/work/ws-tmp/g059997-NASLIB/g059997-naslib-1675210204/g059997-naslib-1667607005/NASLib_mod/naslib/data/imagenet_c/'
+        path = base + Imagenet_Corr[z]
+        file = open(path,'rb')
+        test_loader = pickle.load(file)
+        test_acc = test_imagenet(net, test_loader,eval)
+        corruption_accs_16.append(test_acc)
+        logger.info('{}\n\t Test Error {:.3f}'.format(
+            Imagenet_Corr[z], 100 - 100. * test_acc))
+        z = z + 1
+        
+    print('mCE_ImageNet16_120 C')
+    print(1 - np.mean(corruption_accs_16))
+
+    return (1 - np.mean(corruption_accs_10))
+
+def aug(image):
+  """Perform AugMix augmentations and compute mixture.
+
+  Args:
+    image: torch tensor input image
+    preprocess: Preprocessing function which should return a torch tensor.
+
+  Returns:
+    mixed: Augmented and mixed image.
+  """
+  try:
+        all_ops = config.all_ops
+        mixture_width = config.mixture_width
+        mixture_depth = config.mixture_depth
+        aug_severity = config.aug_severity
+  except Exception as e:
+        all_ops = True
+        mixture_depth = -1
+        mixture_width = 3
+        aug_severity = 3
+    
+    
+  aug_list = augmentations.augmentations_all
+  ws = np.float32(np.random.dirichlet([1] * mixture_width))
+  m = np.float32(np.random.beta(1, 1))
+  mix = torch.zeros_like(image)
+  image = transforms.ToPILImage()(image)
+  for i in range(mixture_width):
+    image_aug = image.copy()
+    depth = mixture_depth if mixture_depth > 0 else np.random.randint(
+        1, 4)
+    for _ in range(depth):
+      op = np.random.choice(aug_list)
+      image_aug = op(image_aug, aug_severity)
+    # Preprocessing commutes since all coefficients are convex
+    image_aug = transforms.ToTensor()(image_aug)
+    mix += ws[i] * (image_aug)
+  image = transforms.ToTensor()(image)
+  mixed = (1 - m) * (image) + m * mix
+  return mixed
+
+
+class AugMixDataset(torch.utils.data.Dataset):
+  """Dataset wrapper to perform AugMix augmentation."""
+
+  def __init__(self, dataset):
+    self.dataset = dataset
+
+  def __getitem__(self, i):
+    x, y = self.dataset[i]
+    im_tuple = (x, aug(x),aug(x))
+    return im_tuple, y
+
+  def __len__(self):
+    return len(self.dataset)
+
+
+### For generating Imagenet16-120C dataset
+from utils import imagenet_c 
+# class ImagenetC(torch.utils.data.Dataset):
+#     def __init__(self, dataset,corruption,sev):
+#         self.dataset = dataset
+#         self.corruption = corruption
+#         self.sev = sev
+
+#     def __getitem__(self, i):
+#         x, y = self.dataset[i]
+#         if x.shape[1] < 16 or x.shape[2] < 16:
+#             import ipdb; ipdb.set_trace()
+#             print(i)
+#             image = transforms.ToPILImage()(x)
+#             image.save(fp = 'corrupted_{}.jpg'.format(i))
+#             z = z + 1
+#             return x,y
+#         else:
+#             x = corrupt(x,self.corruption,self.sev)
+#             return x, y
+
+#     def __len__(self):
+#         return len(self.dataset)
+
+def corrupt(image,corruption,sev):
+    image = corruption(image,sev)
+    return image
+
+def imagenet_c(test_loader,c,z):
+    # import ipdb; ipdb.set_trace()
+    test_loader1 = test_loader
+    test_data = [None]*6
+    for s in range(1,6):
+        aug_data = '_{}_{}_'.format(c,s)
+        # data = [None]*len(test_loader)
+        print(s)
+        data = []
+        test_loader_c = test_loader1
+        for i in range(len(test_loader_c.data)):
+            x,y = test_loader_c.__getitem__(i)
+            if x.shape[1] < 16 or x.shape[2] < 16:
+                print(i)
+                image = transforms.ToPILImage()(x)
+                image.save(fp = 'corrupted_{}.jpg'.format(i))
+            else:
+                try:
+                    # x = x.numpy()
+                    x = corrupt(x, c, s)
+                    x = np.moveaxis(x,-1,0)
+                    x = x[None]  ## adding batch size axis as 1
+                    x = torch.from_numpy(x)
+                    y = torch.tensor(y) ## converting int to tensor
+                    # x = transforms.ToTensor()(x.T)
+                    data.append((x,y))
+                except:
+                    print('{}_not working\n'.format(c))
+        # import ipdb; ipdb.set_trace()
+        test_data[s] = data
+        
+    with open('{}'.format(Imagenet_Corr[z]), 'wb') as f:
+        pickle.dump(test_data, f) 
+
+    return 
+            
+
+

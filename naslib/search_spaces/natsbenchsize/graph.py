@@ -2,8 +2,25 @@ import numpy as np
 import random
 import itertools
 import torch
+import os
+import pickle
+import torch.nn as nn
 
-from naslib.search_spaces.core.graph import Graph
+from naslib.search_spaces.core import primitives as ops
+from naslib.search_spaces.core.primitives import AbstractPrimitive
+from naslib.search_spaces.nasbench201.conversions import (
+    convert_op_indices_to_naslib,
+    convert_naslib_to_op_indices,
+    convert_naslib_to_str,
+)
+
+from naslib.utils.utils import get_project_root
+
+from naslib.search_spaces.nasbench201.primitives import ResNetBasicblock
+
+
+OP_NAMES = ["Identity", "Zero", "ReLUConvBN3x3", "ReLUConvBN1x1", "AvgPool1x1"]
+from naslib.search_spaces.core.graph import Graph, EdgeData
 from naslib.search_spaces.core.query_metrics import Metric
 
 
@@ -22,6 +39,95 @@ class NATSBenchSizeSearchSpace(Graph):
 
         self.space_name = "natsbenchsizesearchspace"
         # Graph not implemented
+
+        self.num_classes = self.NUM_CLASSES if hasattr(self, "NUM_CLASSES") else 10
+        self.op_indices = None
+
+        self.max_epoch = 199
+        self.space_name = "nasbench201"
+        #
+        # Cell definition
+        #
+        cell = Graph()
+        cell.name = "cell"  # Use the same name for all cells with shared attributes
+
+        # Input node
+        cell.add_node(1)
+
+        # Intermediate nodes
+        cell.add_node(2)
+        cell.add_node(3)
+
+        # Output node
+        cell.add_node(4)
+
+        # Edges
+        cell.add_edges_densly()
+
+        #
+        # Makrograph definition
+        #
+        self.name = "makrograph"
+
+        # Cell is on the edges
+        # 1-2:               Preprocessing
+        # 2-3, ..., 6-7:     cells stage 1
+        # 7-8:               residual block stride 2
+        # 8-9, ..., 12-13:   cells stage 2
+        # 13-14:             residual block stride 2
+        # 14-15, ..., 18-19: cells stage 3
+        # 19-20:             post-processing
+
+        total_num_nodes = 20
+        self.add_nodes_from(range(1, total_num_nodes + 1))
+        self.add_edges_from([(i, i + 1) for i in range(1, total_num_nodes)])
+
+        channels = [16, 32, 64]
+
+        #
+        # operations at the edges
+        #
+
+        # preprocessing
+        self.edges[1, 2].set("op", ops.Stem(channels[0]))
+
+        # stage 1
+        for i in range(2, 7):
+            self.edges[i, i + 1].set("op", cell.copy().set_scope("stage_1"))
+
+        # stage 2
+        self.edges[7, 8].set(
+            "op", ResNetBasicblock(C_in=channels[0], C_out=channels[1], stride=2)
+        )
+        for i in range(8, 13):
+            self.edges[i, i + 1].set("op", cell.copy().set_scope("stage_2"))
+
+        # stage 3
+        self.edges[13, 14].set(
+            "op", ResNetBasicblock(C_in=channels[1], C_out=channels[2], stride=2)
+        )
+        for i in range(14, 19):
+            self.edges[i, i + 1].set("op", cell.copy().set_scope("stage_3"))
+
+        # post-processing
+        self.edges[19, 20].set(
+            "op",
+            ops.Sequential(
+                nn.BatchNorm2d(channels[-1]),
+                nn.ReLU(inplace=True),
+                nn.AdaptiveAvgPool2d(1),
+                nn.Flatten(),
+                nn.Linear(channels[-1], self.num_classes),
+            ),
+        )
+
+        # set the ops at the cells (channel dependent)
+        for c, scope in zip(channels, self.OPTIMIZER_SCOPE):
+            self.update_edges(
+                update_func=lambda edge: _set_cell_ops(edge, C=c),
+                scope=scope,
+                private_edge_data=True,
+            )
 
     def query(
         self,
@@ -157,4 +263,16 @@ class NATSBenchSizeSearchSpace(Graph):
 
     def get_type(self):
         return "natsbenchsize"
+    
+    def _set_cell_ops(edge, C):
+        edge.data.set(
+        "op",
+        [
+            ops.Identity(),
+            ops.Zero(stride=1),
+            ops.ReLUConvBN(C, C, kernel_size=3, affine=False, track_running_stats=False),
+            ops.ReLUConvBN(C, C, kernel_size=1, affine=False, track_running_stats=False),
+            ops.AvgPool1x1(kernel_size=3, stride=1, affine=False),
+        ],
+    )
 

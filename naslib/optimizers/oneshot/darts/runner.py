@@ -1,0 +1,108 @@
+import logging
+from pyexpat import model
+import sys
+import naslib as nl
+
+
+# from naslib.defaults.trainer import Trainer
+from naslib.defaults.trainer import Trainer
+from naslib.optimizers import (
+    DARTSOptimizer,
+    GDASOptimizer,
+    OneShotNASOptimizer,
+    RandomNASOptimizer,
+    RandomSearch,
+    RegularizedEvolution,
+    LocalSearch,
+    Bananas,
+    BasePredictor,
+    DrNASOptimizer,
+)
+
+from naslib.search_spaces import NasBench201SearchSpace, DartsSearchSpace, NasBench101SearchSpace, NATSBenchSizeSearchSpace, NasBench301SearchSpace
+from naslib.utils import utils, setup_logger, get_dataset_api
+from naslib.search_spaces.core.query_metrics import Metric
+
+config = utils.get_config_from_args()
+utils.set_seed(config.seed)
+
+logger = setup_logger(config.save + "/log.log")
+logger.setLevel(logging.INFO)  # default DEBUG is too verbose
+
+utils.log_args(config)
+
+supported_optimizers = {
+    "darts": DARTSOptimizer(config),
+    "gdas": GDASOptimizer(config),
+    "oneshot": OneShotNASOptimizer(config),
+    "rsws": RandomNASOptimizer(config),
+    "re": RegularizedEvolution(config),
+    "rs": RandomSearch(config),
+    "ls": RandomSearch(config),
+    "bananas": Bananas(config),
+    "bp": BasePredictor(config),
+    "drnas": DrNASOptimizer(config),
+}
+
+if config.dataset =='cifar100':
+    num_classes=100
+elif config.dataset=='ImageNet16-120':
+    num_classes=120
+else:
+    num_classes=10
+supported_search_space ={
+    "nasbench201" : NasBench201SearchSpace(),#num_classes),
+    "darts" : DartsSearchSpace(),#num_classes),
+    "nasbench101" : NasBench101SearchSpace(),#num_classes)
+    "natsbenchsize" : NATSBenchSizeSearchSpace(),
+    "nasbench301" : NasBench301SearchSpace()
+}
+
+#search_space = NasBench201SearchSpace()
+search_space = supported_search_space[config.search_space]
+#dataset_api = get_dataset_api("nasbench201", config.dataset)
+# print(search_space)
+#dataset_api = get_dataset_api(config.search_space, config.dataset)
+dataset_api = get_dataset_api(config.search_space, config.dataset)
+
+optimizer = supported_optimizers[config.optimizer]
+print(optimizer)
+optimizer.adapt_search_space(search_space)
+
+# trainer = Trainer(optimizer, config, lightweight_output=True)
+trainer = Trainer(optimizer, config)
+trainer.search()
+
+if config.evaluation.dataset =='cifar100':
+    num_classes=100
+elif config.evaluation.dataset=='ImageNet16-120':
+    num_classes=120
+else:
+    num_classes=10
+
+dataset_api = get_dataset_api(config.search_space, config.dataset)
+# checkpoint = utils.get_last_checkpoint(config,search = True)
+# trainer.search(resume_from=checkpoint)
+# if not config.eval_only:
+#    checkpoint = utils.get_last_checkpoint(config) if config.resume else ""
+#    trainer.search(resume_from=checkpoint)
+
+
+# trainer.evaluate(resume_from=checkpoint, dataset_api=dataset_api)
+# mov_model="/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/run/nasbench201/cifar10/movement/14/search/model_final.pth"
+# darts_model="/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/run/nasbench201/cifar10/darts/10/search/model_final.pth"
+# gdas_model="/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/run/nasbench201/cifar10/gdas/10/search/model_final.pth"
+# drnas_model="/work/ws-tmp/g059997-naslib/g059997-naslib-1667607005/NASLib_mod/nasbench201/cifar10/drnas/10/search/model_final.pth"
+# test_model="/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/test_run/nasbench201/cifar10/movement/25/search/model_final.pth"
+# best_nb301="/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/correct_search_prox_darts/warm_10_mask10_train_0.5/darts/cifar10/movement_test/14/search/model_final.pth"
+# model = best_nb301
+# model = "/work/dlclarge2/agnihotr-ml/NASLib/naslib/optimizers/oneshot/movement/run/darts/cifar10/darts/10/search/model_final.pth"
+# trainer.evaluate(dataset_api=dataset_api, metric=Metric.TEST_ACCURACY)#, search_model=model)
+
+# checkpoint = utils.get_last_checkpoint(config, search=True) 
+# trainer.search(resume_from=checkpoint)
+trainer.evaluate(dataset_api = dataset_api, retrain = True, metric = Metric.VAL_ACCURACY)
+# checkpoint = utils.get_last_checkpoint(config, search=False)
+# trainer.evaluate(dataset_api = dataset_api, resume_from=checkpoint, retrain = True, metric = Metric.VAL_ACCURACY)
+# trainer.evaluate(dataset_api=dataset_api,resume_from=checkpoint, metric=Metric.VAL_ACCURACY)
+# trainer.evaluate(dataset_api=dataset_api, metric=Metric.VAL_ACCURACY, search_model=best_nb301)
